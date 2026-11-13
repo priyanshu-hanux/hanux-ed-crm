@@ -1,0 +1,134 @@
+// import { ProtectedRoute } from "@/components/site/protected-route";
+// import { AdminRoleRoute, FacultyRoleRoute } from "@/components/site/role-wrappers";
+// import { DashboardLayout } from "@/layouts/dashboard-layout";
+import { RootLayout } from "@/layouts/root-layout";
+import { createBrowserRouter } from "react-router";
+// import { lazy } from "react";
+
+import { ErrorPage } from "@/app/error/error";
+import { Unauthorized } from "@/app/error/unauthorized";
+import { DashboardLayout } from "@/layouts/dashboard-layout";
+import { lazy } from "react";
+import SignInPage from "@/app/auth/signin-page";
+import SignUpPage from "@/app/auth/signup-page";
+import DestinationPage from "@/components/leads/page";
+
+const Overview = lazy(() => import("@/app/dashboard/overview-page"));
+const SearchPage = lazy(() => import("@/app/dashboard/search-page"));
+const CampaignsPage = lazy(() => import("@/app/dashboard/campaigns-page"));
+const LeadsPage = lazy(() => import("@/app/dashboard/leads-page"));
+const CallTransferPage = lazy(() => import("@/app/dashboard/call-transfer-page"));
+const FollowUpPage = lazy(() => import("@/app/dashboard/followup-page"));
+const CalendarPage = lazy(() => import("@/app/dashboard/calendar-page"));
+const NotificationsPage = lazy(() => import("@/app/notifications/page"));
+const CallLogsPage = lazy(() => import("@/app/dashboard/call-logs-page"));
+const ReportsPage = lazy(() => import("@/app/dashboard/reports-page"));
+const SettingsPage = lazy(() => import("@/app/dashboard/settings-page"));
+const TargetsPage = lazy(() => import("@/app/dashboard/targets-page"));
+const IntegrationsPage = lazy(() => import("@/app/dashboard/integrations-page"));
+
+export const router = createBrowserRouter([
+    {
+        Component: RootLayout,
+        children: [
+            { path: "*", Component: ErrorPage },
+            { path: "not-found", Component: ErrorPage },
+            { path: "unauthorized", Component: Unauthorized },
+            {
+                path: "/",
+                Component: DashboardLayout,
+                // middleware: [loggingMiddleware],
+                // loader: rootLoader,
+                children: [
+                    { index: true, Component: Overview },
+                    { path: "overview", Component: Overview },
+                    { path: "search", Component: SearchPage },
+                    { path: "campaigns", Component: CampaignsPage },
+                    { path: "leads", Component: LeadsPage },
+                    { path: "leads/a", Component: DestinationPage },
+                    { path: "reports", Component: ReportsPage },
+                    { path: "notifications", Component: NotificationsPage },
+                    { path: "settings", Component: SettingsPage },
+                    { path: "integrations", Component: IntegrationsPage },
+                    {
+                        path: "activities",
+                        children: [
+                            { index: true, Component: CallTransferPage },
+                            { path: "call-transfer", Component: CallTransferPage },
+                            { path: "calls", Component: CallLogsPage },
+
+                        ]
+                    },
+                    {
+                        path: "tasks",
+                        children: [
+                            { index: true, Component: FollowUpPage },
+                            { path: "follow-ups", Component: FollowUpPage },
+                            { path: "calendar", Component: CalendarPage },
+
+                        ]
+                    },
+                    {
+                        path: "performance",
+                        children: [
+                            { index: true, Component: TargetsPage },
+                            { path: "targets", Component: TargetsPage },
+
+                        ]
+                    },
+                ]
+            },
+            // {
+            //     Component: ProtectedRoute,
+            //     children: [
+            //         {
+            //             Component: FacultyRoleRoute,
+            //             children: [
+            //                 {
+            //                     path: "faculty-dashboard",
+            //                     Component: DashboardLayout,
+            //                     children: [
+            //                         { index: true, Component: FDashboardHome },
+            //                         { path: "assessment", Component: FDashboardAssessment },
+            //                         { path: "assignments", Component: FDashboardAssignments },
+            //                         { path: "analytics", Component: FacultyAnalyticsPage },
+            //                         { path: "problems", Component: FacultyProblemBankPage },
+            //                         { path: "settings", Component: FacultySettingsPage },
+            //                         { path: "tests/create", Component: CreateTestPage },
+            //                         { path: "tests/:testId/edit", Component: EditTestPage },
+            //                         { path: "tests/:testId/results", Component: TestResultsPage },
+            //                         { path: "attempt/:attemptId", Component: AttemptDetailPage },
+            //                         { path: "bulk-import", Component: BulkImportPage },
+            //                         { path: "reports", Component: ReportsPage },
+            //                     ],
+            //                 },
+            //             ],
+            //         },
+            //         {
+            //             Component: AdminRoleRoute,
+            //             children: [
+            //                 {
+            //                     path: "admin-dashboard",
+            //                     Component: DashboardLayout,
+            //                     children: [
+            //                         { index: true, Component: AdminHome },
+            //                         { path: "students", Component: StudentDashboard },
+            //                         { path: "faculty", Component: FacultyDashboard },
+            //                         { path: "settings", Component: DashboardSettings }
+            //                     ]
+            //                 }
+            //             ]
+            //         }
+            //     ],
+            // },
+            {
+                path: "auth",
+                children: [
+                    { index: true, Component: SignInPage },
+                    { path: "sign-in", Component: SignInPage },
+                    { path: "sign-up", Component: SignUpPage },
+                ],
+            },
+        ],
+    },
+]);
