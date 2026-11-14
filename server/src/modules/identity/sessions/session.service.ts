@@ -2,6 +2,7 @@ import { generateToken, sha256 } from "@/lib/crypto.js"
 import { prisma } from "@/lib/prisma.js"
 import type { Prisma, SessionRevokedReason } from "@/generated/prisma/client.js"
 import { SESSION_MAX_AGE_MS } from "@/modules/identity/sessions/session.config.js"
+import { HttpError } from "@/utils/http-error.js"
 
 type Db = Prisma.TransactionClient | typeof prisma
 
@@ -53,6 +54,30 @@ export async function revokeSessionByToken(
     where: { tokenHash: sha256(token), revokedAt: null },
     data: { revokedAt: new Date(), revokedReason: reason },
   })
+}
+
+/**
+ * Makes another of the member's role assignments active and replaces the
+ * session token (the old cookie stops working).
+ */
+export async function switchActiveAssignment(input: {
+  sessionId: string
+  membershipId: string
+  assignmentId: string
+}): Promise<{ token: string; expiresAt: Date }> {
+  const assignment = await prisma.roleAssignment.findFirst({
+    where: { id: input.assignmentId, membershipId: input.membershipId },
+    select: { id: true },
+  })
+  if (!assignment) throw HttpError.notFound("You don't have that role")
+
+  const token = generateToken()
+  const session = await prisma.session.update({
+    where: { id: input.sessionId },
+    data: { activeAssignmentId: assignment.id, tokenHash: sha256(token) },
+    select: { expiresAt: true },
+  })
+  return { token, expiresAt: session.expiresAt }
 }
 
 export async function revokeSession(

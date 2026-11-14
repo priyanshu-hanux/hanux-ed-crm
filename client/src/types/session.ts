@@ -1,3 +1,5 @@
+import type { PermissionMap } from "@/types/permissions";
+
 /** Org roles. Keep in sync with the server's Role enum. */
 export type OrgRole = "SUPER_ADMIN" | "ADMIN" | "MANAGER" | "EXECUTIVE";
 
@@ -52,6 +54,8 @@ export interface SessionInfo {
     };
     assignments: RoleAssignment[];
     activeAssignmentId: string;
+    /** What the active role may do. */
+    permissions: PermissionMap;
     authzVersion: number;
 }
 

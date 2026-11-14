@@ -2,6 +2,7 @@ import { createContext, useCallback, useEffect, useMemo, useRef, useState, type 
 import { toast } from "sonner";
 import * as authApi from "@/apis/auth-api";
 import { authEvents } from "@/apis/auth-events";
+import type { Grant, Permission } from "@/types/permissions";
 import type { RoleAssignment, SessionInfo, SignupInput } from "@/types/session";
 
 export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
@@ -12,9 +13,17 @@ export interface AuthContextValue {
     activeAssignment: RoleAssignment | null;
     /** Why the user was signed out (expired, revoked...), shown on the sign-in page. */
     signedOutReason: string | null;
+    /**
+     * Whether the active role has a permission. For showing and hiding UI only:
+     * the server checks every request.
+     */
+    can: (permission: Permission) => boolean;
+    /** The active role's grant: true, a scope ("own", "team"...), or undefined. */
+    grantOf: (permission: Permission) => Grant | undefined;
     signIn: (email: string, password: string) => Promise<void>;
     signUp: (input: SignupInput) => Promise<void>;
     signOut: () => Promise<void>;
+    switchRole: (assignmentId: string) => Promise<void>;
     refreshSession: () => Promise<void>;
 }
 
@@ -112,20 +121,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }, []);
 
-    const value = useMemo<AuthContextValue>(
-        () => ({
+    const switchRole = useCallback(async (assignmentId: string) => {
+        setSession(await authApi.switchRole(assignmentId));
+    }, []);
+
+    const value = useMemo<AuthContextValue>(() => {
+        const grantOf = (permission: Permission) => session?.permissions[permission];
+        return {
             status,
             session,
             activeAssignment:
                 session?.assignments.find((assignment) => assignment.id === session.activeAssignmentId) ?? null,
             signedOutReason,
+            can: (permission) => grantOf(permission) !== undefined,
+            grantOf,
             signIn,
             signUp,
             signOut,
+            switchRole,
             refreshSession,
-        }),
-        [status, session, signedOutReason, signIn, signUp, signOut, refreshSession]
-    );
+        };
+    }, [status, session, signedOutReason, signIn, signUp, signOut, switchRole, refreshSession]);
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

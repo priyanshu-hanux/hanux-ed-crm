@@ -15,7 +15,10 @@ import { appIcons } from "@/configs/icons";
 import { Separator } from "@/components/ui/separator";
 import { TimezoneSwitcher } from "@/components/sidebar/timezone/timezone-switcher";
 import { RoleSwitcher } from "@/components/sidebar/role-switcher";
+import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
+import { filterNavigation } from "@/types/app-layout";
+import { isApiError } from "@/types/app-error";
 import { assignmentLabel, type OrgRole } from "@/types/session";
 
 const ROLE_ICONS: Record<OrgRole, React.ElementType> = {
@@ -28,24 +31,42 @@ const ROLE_ICONS: Record<OrgRole, React.ElementType> = {
 export function AppSidebar(
   props: React.ComponentProps<typeof Sidebar>
 ) {
-  const { session, activeAssignment, status } = useAuth();
+  const { session, status, can, switchRole } = useAuth();
+  const [switching, setSwitching] = React.useState(false);
 
-  // Phase 1 shows the active role; switching between roles comes with permissions.
   const roles: Role[] =
-    session && activeAssignment
-      ? [
-          {
-            name: assignmentLabel(activeAssignment, session.branches.length),
-            logo: ROLE_ICONS[activeAssignment.role],
-            plan: session.organization.name,
-          },
-        ]
-      : [];
+    session?.assignments.map((assignment) => ({
+      id: assignment.id,
+      name: assignmentLabel(assignment, session.branches.length),
+      logo: ROLE_ICONS[assignment.role],
+      plan: session.organization.name,
+    })) ?? [];
+
+  const handleRoleChange = async (role: Role) => {
+    if (!role.id) return;
+    setSwitching(true);
+    try {
+      await switchRole(role.id);
+      toast.success(`You're now working as ${role.name}`);
+    } catch (error) {
+      toast.error(isApiError(error) ? error.message : "Couldn't switch role");
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  const visibleNavigation = filterNavigation(navigation, can);
 
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader className="h-14 justify-center">
-        <RoleSwitcher roles={roles} loading={status === "loading"} />
+        <RoleSwitcher
+          roles={roles}
+          activeRoleId={session?.activeAssignmentId}
+          loading={status === "loading"}
+          switching={switching}
+          onRoleChange={handleRoleChange}
+        />
 
         <Separator orientation="horizontal" className="bg-muted h-1" />
         
@@ -72,7 +93,7 @@ export function AppSidebar(
       </SidebarHeader>
 
       <SidebarContent>
-        {navigation.map((section) => (
+        {visibleNavigation.map((section) => (
           <NavLinks
             key={section.groupTitle}
             groupTitle={section.groupTitle}

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Link } from "react-router";
 import { Check, LogIn } from "lucide-react";
 
@@ -26,9 +25,13 @@ const SIGN_IN_URL = "/auth/sign-in";
 type RoleSwitcherProps = {
   /** The signed-in user's roles (from the API). Empty or missing = not signed in → Guest */
   roles?: Role[];
+  /** id of the active role (from the session). Defaults to the first role. */
+  activeRoleId?: string;
   /** True while the roles are being fetched; shows a placeholder instead of flashing "Guest" */
   loading?: boolean;
-  /** Called when the user picks a role, e.g. to store it or refetch permissions */
+  /** True while a switch is in progress; the menu is disabled. */
+  switching?: boolean;
+  /** Called when the user picks a different role */
   onRoleChange?: (role: Role) => void;
 };
 
@@ -45,19 +48,22 @@ function RoleBadge({ role, className }: { role: Role; className?: string }) {
   )
 }
 
-export function RoleSwitcher({ roles = [], loading = false, onRoleChange }: RoleSwitcherProps) {
+export function RoleSwitcher({
+  roles = [],
+  activeRoleId,
+  loading = false,
+  switching = false,
+  onRoleChange,
+}: RoleSwitcherProps) {
   const { isMobile, state } = useSidebar();
-  // Only the user's choice is stored. The active role is worked out on every render,
-  // so roles that arrive later from the API (or disappear on sign-out) are picked up automatically.
-  const [selectedName, setSelectedName] = useState<string | null>(null);
 
+  // The active role comes from the session, so it is always what the server enforces.
   const isSignedIn = (roles.length > 0);
   const isCollapsed = state === "collapsed" && !isMobile;
-  const activeRole = (selectedName === GUEST_ROLE.name ? GUEST_ROLE : roles.find((role) => role.name === selectedName)) ?? roles[0] ?? GUEST_ROLE;
+  const activeRole = roles.find((role) => role.id === activeRoleId) ?? roles[0] ?? GUEST_ROLE;
 
   const selectRole = (role: Role) => {
-    setSelectedName(role.name);
-    onRoleChange?.(role);
+    if (role.id !== activeRole.id) onRoleChange?.(role);
   }
 
   if (loading) {
@@ -83,6 +89,8 @@ export function RoleSwitcher({ roles = [], loading = false, onRoleChange }: Role
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
+              disabled={switching}
+              aria-busy={switching}
               aria-label={`Role: ${activeRole.name}, ${activeRole.plan}. Switch role`}
               className="h-10 gap-2.5 px-1 data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
@@ -104,22 +112,17 @@ export function RoleSwitcher({ roles = [], loading = false, onRoleChange }: Role
           >
             {isSignedIn ? (
               <>
-                <DropdownMenuLabel className="text-xs text-muted-foreground">Switch role</DropdownMenuLabel>
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {roles.length > 1 ? "Switch role" : "Your role"}
+                </DropdownMenuLabel>
                 {roles.map((role) => (
                   <RoleItem
-                    key={role.name}
+                    key={role.id ?? role.name}
                     role={role}
-                    active={role.name === activeRole.name}
+                    active={role === activeRole}
                     onSelect={() => selectRole(role)}
                   />
                 ))}
-                <DropdownMenuSeparator />
-                <RoleItem
-                  role={GUEST_ROLE}
-                  active={activeRole.name === GUEST_ROLE.name}
-                  onSelect={() => selectRole(GUEST_ROLE)}
-                  muted
-                />
               </>
             ) : (
               // Not signed in: Guest is the only role, so offer the way to get real ones

@@ -170,12 +170,17 @@ The table covers identity plus a first guess at leads/reports; each CRM module a
 
 ### Code
 
-- `permissions/catalog.ts`: every permission and the role → permission/scope map. The single source of truth.
-- `requirePermission("leads:assign")` middleware: 403 if the active assignment lacks it.
-- `scopeWhere(auth, "leads:read")` returns the Prisma `where` filter for the active scope; services merge it into their queries.
-- `canManageMember(auth, target)` and similar helpers implement the rules above.
+- `permissions/catalog.ts`: every permission and the role → permission/scope map (`true` = allowed without a scope). The single source of truth; the client mirrors it in `client/src/types/permissions.ts`.
+- `permissions/access.ts`:
+  - `requirePermission("leads:assign")` middleware: 403 `FORBIDDEN` if the active assignment lacks it.
+  - `scopeWhere(auth, "leads:read")` returns the filter for the active scope (`{ orgId }`, `{ orgId, branchId }` or `{ orgId, ownerId: { in } }`); services spread it into their Prisma `where`. Records it applies to need `orgId`, `branchId` and `ownerId` (a Membership id) columns.
+  - `can(auth, permission)` and `grantOf(auth, permission)` for checks inside services.
+- `canManageMember(auth, target)` and similar helpers implement the rules above (phase 3).
+- `req.auth.permissions` holds the active role's map, computed from the catalog on every request.
 
-**Switching roles**: `POST /v1/auth/switch-role { assignmentId }` checks the assignment belongs to the member, updates `session.activeAssignmentId` and issues a new session token. Default on sign-in: the broadest assignment held (Super Admin, then Admin, Manager, Executive).
+**Client**: `useAuth().can(permission)` and `grantOf(permission)` for showing UI; nav items carry a `permission` and are filtered by `filterNavigation`; routes are gated with `withPermission("org:manage")` (redirects to `/unauthorized`). These only shape the UI; the server checks every request.
+
+**Switching roles**: `POST /v1/auth/switch-role { assignmentId }` checks the assignment belongs to the member, updates `session.activeAssignmentId`, issues a new session token (the old cookie stops working) and returns the updated session, so the client updates without another request. Default on sign-in: the broadest assignment held (Super Admin, then Admin, Manager, Executive).
 
 ## Request context
 
@@ -237,7 +242,7 @@ src/
 │   ├── teams/
 │   ├── branches/
 │   ├── organizations/
-│   ├── permissions/   catalog.ts, scope.ts (requirePermission, scopeWhere, canManageMember)
+│   ├── permissions/   catalog.ts, access.ts (requirePermission, scopeWhere, can, grantOf)
 │   └── audit/         audit.service.ts
 ├── middleware/authenticate.ts
 └── lib/password.ts, crypto.ts (random tokens, sha256), mailer.ts, rate-limit.ts
@@ -260,7 +265,7 @@ New packages: `@node-rs/argon2`, `express-rate-limit`, `resend`.
 ## Phases
 
 1. ✅ **Foundation** (done): schema and migration (organizations, branches, users, memberships, role assignments, sessions), password and token helpers, `loadAuthContext` and `authenticate`, signup/login/logout/session, `GET /me`. Client: auth API, sign-in/up wired, protected routes, session error handling.
-2. **Permissions**: catalog, `requirePermission`, `scopeWhere`, switch-role, permissions in the session response. Client: role switcher, nav gating.
+2. ✅ **Permissions** (done): catalog, `requirePermission`, `scopeWhere`, switch-role, permissions in the session response. Client: role switcher, nav gating.
 3. **Members, invites, teams, branches**: management endpoints, people-management rules, email sending. Client: Team page, accept-invite page.
 4. **Account security**: email verification, password reset and change, session list/revoke, rate limits, lockout, audit log.
 5. **Platform admin** (later): organization management for Hanux staff.

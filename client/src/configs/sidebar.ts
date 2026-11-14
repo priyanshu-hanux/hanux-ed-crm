@@ -1,5 +1,9 @@
 import { appIcons } from "@/configs/icons";
+import type { NavGroup } from "@/types/app-layout";
+
 export type Role = {
+    /** Role assignment id, for signed-in roles. */
+    id?: string
     name: string
     logo: React.ElementType
     plan: string
@@ -11,7 +15,8 @@ export const GUEST_ROLE: Role = {
     plan: "Visitor"
 }
 
-export const navigation = [
+/** Items with a `permission` are hidden from roles that lack it. */
+export const navigation: NavGroup[] = [
     {
         groupTitle: "Workspace",
         items: [
@@ -49,11 +54,14 @@ export const navigation = [
             {
                 title: "Lead Management",
                 url: "/leads",
+                permission: "leads:read",
                 icon: appIcons.database,
                 items: [
                     {
                         title: "Unassigned",
                         url: "/leads?type=unassigned",
+                        // The branch's unassigned pool: for whoever assigns leads.
+                        permission: "leads:assign",
                         icon: appIcons.listChevronsUpDown
                     },
                     {
@@ -148,6 +156,7 @@ export const navigation = [
             {
                 title: "Reports",
                 url: "/reports",
+                permission: "reports:read",
                 icon: appIcons.chart,
             },
 
@@ -159,11 +168,13 @@ export const navigation = [
             {
                 title: "Team",
                 url: "/team",
+                permission: "members:read",
                 icon: appIcons.users,
             },
             {
                 title: "Integrations",
                 url: "/integrations",
+                permission: "org:manage",
                 icon: appIcons.plug,
             },
             {

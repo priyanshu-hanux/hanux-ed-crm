@@ -4,9 +4,12 @@ import { validate } from "@/middleware/validate.js"
 import {
   loginSchema,
   signupSchema,
+  switchRoleSchema,
   type LoginInput,
   type SignupInput,
+  type SwitchRoleInput,
 } from "@/modules/identity/auth/auth.schemas.js"
+import { loadAuthContext } from "@/modules/identity/sessions/auth-context.js"
 import {
   getSessionInfo,
   login,
@@ -19,6 +22,7 @@ import {
 } from "@/modules/identity/sessions/session.cookie.js"
 import {
   revokeSessionByToken,
+  switchActiveAssignment,
   type RequestMeta,
 } from "@/modules/identity/sessions/session.service.js"
 import { sendSuccess } from "@/utils/api-response.js"
@@ -60,3 +64,21 @@ authRouter.post("/logout", async (req, res) => {
 authRouter.get("/session", authenticate, async (req, res) => {
   sendSuccess(res, await getSessionInfo(getAuth(req)))
 })
+
+/** Makes another of the member's roles active; returns the new session. */
+authRouter.post(
+  "/switch-role",
+  authenticate,
+  validate({ body: switchRoleSchema }),
+  async (req, res) => {
+    const auth = getAuth(req)
+    const { assignmentId } = req.body as SwitchRoleInput
+    const { token, expiresAt } = await switchActiveAssignment({
+      sessionId: auth.sessionId,
+      membershipId: auth.membershipId,
+      assignmentId,
+    })
+    setSessionCookie(res, token, expiresAt)
+    sendSuccess(res, await getSessionInfo(await loadAuthContext(token)))
+  }
+)

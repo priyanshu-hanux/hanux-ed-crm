@@ -259,6 +259,8 @@ export async function getSessionInfo(auth: AuthContext) {
     },
     assignments: membership.roleAssignments,
     activeAssignmentId: auth.assignmentId,
+    /** What the active role may do: permission → true or a scope. */
+    permissions: auth.permissions,
     authzVersion: membership.authzVersion,
   }
 }

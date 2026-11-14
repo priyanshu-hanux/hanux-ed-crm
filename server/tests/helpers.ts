@@ -34,6 +34,51 @@ export async function signupAgent(overrides: Record<string, string> = {}) {
   return { agent, email, session: session.body.data }
 }
 
+/** The raw session token in an agent's cookie jar. */
+export function cookieOf(agent: ReturnType<typeof request.agent>): string {
+  const cookie = agent.jar.getCookie("session", {
+    domain: "127.0.0.1",
+    path: "/",
+    secure: false,
+    script: false,
+  })
+  if (!cookie) throw new Error("no session cookie")
+  return cookie.value
+}
+
+export async function addBranch(orgId: string, name: string) {
+  return prisma.branch.create({
+    data: { orgId, name, timezone: "UTC" },
+  })
+}
+
+type Role = "SUPER_ADMIN" | "ADMIN" | "MANAGER" | "EXECUTIVE"
+
+/** Adds a user to an org with the given role assignments. */
+export async function addMember(
+  orgId: string,
+  homeBranchId: string,
+  assignments: { role: Role; branchId?: string }[]
+) {
+  const user = await prisma.user.create({
+    data: { email: uniqueEmail(), name: "Member", passwordHash: "x" },
+  })
+  return prisma.membership.create({
+    data: {
+      userId: user.id,
+      orgId,
+      homeBranchId,
+      roleAssignments: {
+        create: assignments.map((a) => ({
+          role: a.role,
+          branchId: a.branchId ?? null,
+        })),
+      },
+    },
+    include: { roleAssignments: true },
+  })
+}
+
 /** Deletes every user and organization the tests created. */
 export async function cleanup() {
   const emails = [...createdEmails]

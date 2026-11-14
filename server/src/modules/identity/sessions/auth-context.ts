@@ -1,6 +1,10 @@
 import { sha256 } from "@/lib/crypto.js"
 import { prisma } from "@/lib/prisma.js"
 import type { Role } from "@/generated/prisma/client.js"
+import {
+  type PermissionMap,
+  permissionsFor,
+} from "@/modules/identity/permissions/catalog.js"
 import { pickBroadest } from "@/modules/identity/roles.js"
 import {
   SESSION_IDLE_TIMEOUT_MS,
@@ -23,6 +27,8 @@ export interface AuthContext {
   branchId: string | null
   isPlatformAdmin: boolean
   authzVersion: number
+  /** What the active role may do. */
+  permissions: PermissionMap
 }
 
 const revoked = (message: string) =>
@@ -94,7 +100,7 @@ export async function loadAuthContext(token: string): Promise<AuthContext> {
       data: { activeAssignmentId: next.id },
     })
     throw HttpError.forbidden(
-      "Your role was changed. Reload to continue.",
+      "The role you were using was removed. You've been switched to another of your roles.",
       "PERMISSIONS_CHANGED"
     )
   }
@@ -117,5 +123,6 @@ export async function loadAuthContext(token: string): Promise<AuthContext> {
     branchId: session.activeAssignment.branchId,
     isPlatformAdmin: session.user.isPlatformAdmin,
     authzVersion: session.membership.authzVersion,
+    permissions: permissionsFor(session.activeAssignment.role),
   }
 }

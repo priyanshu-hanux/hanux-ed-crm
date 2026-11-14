@@ -37,5 +37,10 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(128),
 })
 
+export const switchRoleSchema = z.object({
+  assignmentId: z.uuid(),
+})
+
 export type SignupInput = z.infer<typeof signupSchema>
 export type LoginInput = z.infer<typeof loginSchema>
+export type SwitchRoleInput = z.infer<typeof switchRoleSchema>

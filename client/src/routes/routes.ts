@@ -4,6 +4,7 @@ import { lazy } from "react";
 import { RootLayout } from "@/layouts/root-layout";
 import { DashboardLayout } from "@/layouts/dashboard-layout";
 import { GuestRoute, ProtectedRoute } from "@/components/site/protected-route";
+import { withPermission } from "@/components/site/permission-route";
 import { ErrorPage } from "@/app/error/error";
 import { Unauthorized } from "@/app/error/unauthorized";
 import SignInPage from "@/app/auth/signin-page";
@@ -45,10 +46,16 @@ export const router = createBrowserRouter([
                             { path: "campaigns", Component: CampaignsPage },
                             { path: "leads", Component: LeadsPage },
                             { path: "leads/a", Component: DestinationPage },
-                            { path: "reports", Component: ReportsPage },
+                            {
+                                Component: withPermission("reports:read"),
+                                children: [{ path: "reports", Component: ReportsPage }],
+                            },
                             { path: "notifications", Component: NotificationsPage },
                             { path: "settings", Component: SettingsPage },
-                            { path: "integrations", Component: IntegrationsPage },
+                            {
+                                Component: withPermission("org:manage"),
+                                children: [{ path: "integrations", Component: IntegrationsPage }],
+                            },
                             {
                                 path: "activities",
                                 children: [
