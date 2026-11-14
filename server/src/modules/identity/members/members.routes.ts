@@ -1,4 +1,5 @@
-import { Router } from "express"
+import { type Request, Router } from "express"
+import { audit } from "@/modules/identity/audit/audit.service.js"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma.js"
 import type { Prisma } from "@/generated/prisma/client.js"
@@ -80,6 +81,22 @@ async function clearManagedTeams(
   })
 }
 
+/** Audit entry about a member, visible to their home branch's Admins. */
+function memberAudit(
+  req: Request,
+  action: string,
+  member: { id: string; homeBranchId: string; user: { name: string } },
+  metadata: Prisma.InputJsonObject = {}
+) {
+  return audit(req, {
+    action,
+    branchId: member.homeBranchId,
+    targetType: "member",
+    targetId: member.id,
+    metadata: { name: member.user.name, ...metadata },
+  })
+}
+
 export const membersRouter = Router()
 membersRouter.use(authenticate)
 
@@ -158,6 +175,10 @@ membersRouter.patch(
       where: { id: member.id },
       data: { homeBranchId },
     })
+    await memberAudit(req, "member.home_branch_changed", member, {
+      from: member.homeBranchId,
+      to: homeBranchId,
+    })
     sendSuccess(
       res,
       toMemberDto(await loadMember(prisma, auth.orgId, member.id))
@@ -209,6 +230,10 @@ membersRouter.post(
       })
       await bumpAuthzVersion(tx, [member.id])
     })
+    await memberAudit(req, "member.role_assigned", member, {
+      role: input.role,
+      branchId: branchId ?? null,
+    })
     sendSuccess(
       res,
       toMemberDto(await loadMember(prisma, auth.orgId, member.id)),
@@ -259,6 +284,10 @@ membersRouter.delete(
       }
       await bumpAuthzVersion(tx, [member.id])
     })
+    await memberAudit(req, "member.role_removed", member, {
+      role: assignment.role,
+      branchId: assignment.branchId,
+    })
     sendSuccess(
       res,
       toMemberDto(await loadMember(prisma, auth.orgId, member.id))
@@ -293,6 +322,7 @@ membersRouter.post(
       await clearManagedTeams(tx, member.id)
       await bumpAuthzVersion(tx, [member.id])
     })
+    await memberAudit(req, "member.deactivated", member)
     sendSuccess(
       res,
       toMemberDto(await loadMember(prisma, auth.orgId, member.id))
@@ -317,6 +347,7 @@ membersRouter.post(
       })
       await bumpAuthzVersion(tx, [member.id])
     })
+    await memberAudit(req, "member.reactivated", member)
     sendSuccess(
       res,
       toMemberDto(await loadMember(prisma, auth.orgId, member.id))
@@ -336,6 +367,7 @@ membersRouter.post(
       where: { membershipId: member.id, revokedAt: null },
       data: { revokedAt: new Date(), revokedReason: "REVOKED_BY_ADMIN" },
     })
+    await memberAudit(req, "member.sessions_revoked", member, { count })
     sendSuccess(res, { revoked: count }, { message: "Signed out everywhere" })
   }
 )

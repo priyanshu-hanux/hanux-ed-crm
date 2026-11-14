@@ -174,6 +174,16 @@ export async function createInvite(
   auth: AuthContext,
   input: InviteInput
 ): Promise<InviteDto> {
+  const inviter = await prisma.user.findUniqueOrThrow({
+    where: { id: auth.userId },
+    select: { emailVerifiedAt: true },
+  })
+  if (!inviter.emailVerifiedAt) {
+    throw HttpError.forbidden(
+      "Verify your email address before inviting people",
+      "EMAIL_NOT_VERIFIED"
+    )
+  }
   const placement = await resolvePlacement(auth, input)
 
   const existing = await prisma.user.findUnique({
@@ -300,10 +310,12 @@ export async function resendInvite(auth: AuthContext, id: string) {
 
 export async function revokeInvite(auth: AuthContext, id: string) {
   const invite = await loadManageableInvite(auth, id)
-  await prisma.invite.update({
+  const revoked = await prisma.invite.update({
     where: { id: invite.id },
     data: { revokedAt: new Date() },
+    select: inviteSelect,
   })
+  return toInviteDto(revoked)
 }
 
 // ─── Public: viewing and accepting ────────────────────────────────────────────
@@ -375,7 +387,15 @@ export async function acceptInvite(
   token: string,
   input: z.infer<typeof acceptInviteSchema>,
   meta: RequestMeta
-): Promise<NewSession> {
+): Promise<
+  NewSession & {
+    userId: string
+    orgId: string
+    branchId: string
+    inviteId: string
+    membershipId: string
+  }
+> {
   const invite = await findOpenInvite(token)
   if (
     await prisma.user.findUnique({
@@ -424,7 +444,7 @@ export async function acceptInvite(
         createdById: invite.invitedById,
       },
     })
-    return createSession(
+    const session = await createSession(
       tx,
       {
         userId: user.id,
@@ -434,5 +454,13 @@ export async function acceptInvite(
       },
       meta
     )
+    return {
+      ...session,
+      userId: user.id,
+      orgId: invite.orgId,
+      branchId: invite.branchId,
+      inviteId: invite.id,
+      membershipId: membership.id,
+    }
   })
 }

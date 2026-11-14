@@ -9,6 +9,7 @@ import type {
   LoginInput,
   SignupInput,
 } from "@/modules/identity/auth/auth.schemas.js"
+import type { AuditEvent } from "@/modules/identity/audit/audit.service.js"
 import { pickBroadest } from "@/modules/identity/roles.js"
 import type { AuthContext } from "@/modules/identity/sessions/auth-context.js"
 import {
@@ -50,7 +51,7 @@ async function uniqueOrgSlug(name: string): Promise<string> {
 export async function signup(
   input: SignupInput,
   meta: RequestMeta
-): Promise<NewSession> {
+): Promise<NewSession & { userId: string; orgId: string; branchId: string }> {
   const existing = await prisma.user.findUnique({
     where: { email: input.email },
     select: { id: true },
@@ -99,7 +100,7 @@ export async function signup(
       data: { lastLoginAt: new Date() },
     })
 
-    return createSession(
+    const session = await createSession(
       tx,
       {
         userId: user.id,
@@ -109,15 +110,25 @@ export async function signup(
       },
       meta
     )
+    return { ...session, userId: user.id, orgId: org.id, branchId: branch.id }
   })
 }
 
 const invalidCredentials = () =>
   HttpError.unauthorized("Incorrect email or password", "INVALID_CREDENTIALS")
 
+/** Failed sign-ins before the account locks, and for how long. */
+export const MAX_FAILED_LOGINS = 10
+export const LOCK_DURATION_MS = 15 * 60 * 1000
+
+/**
+ * Signs in. `record` receives audit events (failed attempts, lockouts,
+ * success), since failures end in an error the route can't inspect safely.
+ */
 export async function login(
   input: LoginInput,
-  meta: RequestMeta
+  meta: RequestMeta,
+  record: (event: AuditEvent) => Promise<void>
 ): Promise<NewSession> {
   const user = await prisma.user.findUnique({
     where: { email: input.email },
@@ -125,12 +136,15 @@ export async function login(
       id: true,
       passwordHash: true,
       status: true,
+      failedLoginCount: true,
+      lockedUntil: true,
       memberships: {
         where: { status: "ACTIVE" },
         orderBy: { joinedAt: "asc" },
         select: {
           id: true,
           orgId: true,
+          homeBranchId: true,
           organization: { select: { status: true } },
           roleAssignments: { select: { id: true, role: true } },
         },
@@ -142,8 +156,39 @@ export async function login(
     await verifyAgainstDummy(input.password)
     throw invalidCredentials()
   }
+
+  const where = {
+    orgId: user.memberships[0]?.orgId ?? null,
+    branchId: user.memberships[0]?.homeBranchId ?? null,
+    actorId: user.id,
+    targetType: "user" as const,
+    targetId: user.id,
+  }
+
+  // Locked: refuse even the right password until the lock ends (or a reset).
+  if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
+    await record({ ...where, action: "auth.login_blocked" })
+    throw accountLocked()
+  }
+
   if (!(await verifyPassword(user.passwordHash, input.password))) {
-    throw invalidCredentials()
+    const failures = user.failedLoginCount + 1
+    const lock = failures >= MAX_FAILED_LOGINS
+    await prisma.user.update({
+      where: { id: user.id },
+      data: lock
+        ? {
+            failedLoginCount: 0,
+            lockedUntil: new Date(Date.now() + LOCK_DURATION_MS),
+          }
+        : { failedLoginCount: failures },
+    })
+    await record({
+      ...where,
+      action: lock ? "auth.locked" : "auth.login_failed",
+      metadata: { failures },
+    })
+    throw lock ? accountLocked() : invalidCredentials()
   }
 
   // Only reveal account state after the password is proven.
@@ -189,11 +234,19 @@ export async function login(
     ),
     prisma.user.update({
       where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+      data: { lastLoginAt: new Date(), failedLoginCount: 0, lockedUntil: null },
     }),
   ])
+  await record({ ...where, action: "auth.login" })
   return session
 }
+
+const accountLocked = () =>
+  new HttpError(
+    429,
+    "ACCOUNT_LOCKED",
+    "Too many failed sign-in attempts. Try again in 15 minutes, or reset your password."
+  )
 
 /** Everything the client needs about the signed-in user, in one response. */
 export async function getSessionInfo(auth: AuthContext) {

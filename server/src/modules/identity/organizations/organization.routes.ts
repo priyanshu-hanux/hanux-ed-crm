@@ -1,4 +1,5 @@
 import { Router } from "express"
+import { audit } from "@/modules/identity/audit/audit.service.js"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma.js"
 import { authenticate, getAuth } from "@/middleware/authenticate.js"
@@ -46,6 +47,12 @@ organizationRouter.patch(
       data: req.body as z.infer<typeof updateOrgSchema>,
       select: orgSelect,
     })
+    await audit(req, {
+      action: "org.updated",
+      targetType: "organization",
+      targetId: org.id,
+      metadata: { ...(req.body as object) },
+    })
     sendSuccess(res, org)
   }
 )
@@ -88,6 +95,12 @@ organizationRouter.post(
         data: { isOwner: true },
       })
       await bumpAuthzVersion(tx, [auth.membershipId, target.id])
+    })
+    await audit(req, {
+      action: "org.ownership_transferred",
+      targetType: "member",
+      targetId: target.id,
+      metadata: { from: auth.membershipId },
     })
     sendSuccess(res, null, { message: "Ownership transferred" })
   }

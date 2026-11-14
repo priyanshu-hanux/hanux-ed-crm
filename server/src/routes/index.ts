@@ -1,4 +1,5 @@
 import { Router } from "express"
+import { auditRouter } from "@/modules/identity/audit/audit.routes.js"
 import { authRouter } from "@/modules/identity/auth/auth.routes.js"
 import { branchesRouter } from "@/modules/identity/branches/branches.routes.js"
 import { invitesRouter } from "@/modules/identity/invites/invites.routes.js"
@@ -17,3 +18,4 @@ apiRouter.use("/branches", branchesRouter)
 apiRouter.use("/members", membersRouter)
 apiRouter.use("/teams", teamsRouter)
 apiRouter.use("/invites", invitesRouter)
+apiRouter.use("/audit-log", auditRouter)

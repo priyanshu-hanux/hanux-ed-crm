@@ -72,9 +72,9 @@ User 1──* VerificationToken (email verify code, password reset)
 
 **Invite**: `id`, `orgId`, `email`, `role`, `branchId` (the new member's home branch, and the role's branch; Super Admin invites default to the default branch), `teamId?`, `invitedById`, `tokenHash`, `expiresAt` (7 days), `acceptedAt?`, `revokedAt?`. A new invite to the same email revokes the previous open one. Accepting marks the email verified (they opened the emailed link).
 
-**VerificationToken**: `id`, `userId`, `type` (EMAIL_VERIFY, PASSWORD_RESET), `tokenHash`, `attempts`, `expiresAt`, `usedAt?`.
+**VerificationToken**: `id`, `userId`, `type` (EMAIL_VERIFY, PASSWORD_RESET), `tokenHash`, `attempts`, `expiresAt`, `usedAt?`. Email codes are hashed together with the user id (6 digits alone are guessable). Sending a new code or link invalidates the previous one.
 
-**AuditLog**: `id`, `orgId?`, `branchId?`, `actorId?`, `action` (e.g. `auth.login`, `member.role_assigned`), `targetType?`, `targetId?`, `metadata Json`, `ip?`, `createdAt`.
+**AuditLog**: `id`, `orgId?`, `branchId?` (no foreign key, so history survives), `actorId?`, `actorName` (snapshot), `action` (e.g. `auth.login`, `member.role_assigned`), `targetType?`, `targetId?`, `metadata Json`, `ip?`, `userAgent?`, `createdAt`. Append-only. Entries without a signed-in user (password reset) are filed under the actor's org and home branch.
 
 **CRM records** (leads and later modules) carry `orgId`, `branchId` and `ownerId?`. Unassigned leads have a branch but no owner (the branch's pool).
 
@@ -115,9 +115,22 @@ Every response for a signed-in user includes an `X-Authz-Version` header (the me
 
 **CSRF**: SameSite=Lax plus the CORS allowlist covers other sites. Since sibling subdomains count as the same site, state-changing requests must also be `Content-Type: application/json` (which a plain HTML form can't send).
 
-**Brute force**: rate limit `login`, `signup`, `forgot-password` and code verification per IP and per email (`express-rate-limit`, in memory for now, Redis later). Lock the account for 15 minutes after 10 failed logins.
+**Brute force** (`lib/rate-limit.ts`, `express-rate-limit`, in memory for now, Redis when running several servers; off in tests):
 
-**Email verification**: 6-digit code (the client already has an OTP input), 10 minutes, 5 attempts. Unverified users can sign in but can't invite others. **Password reset**: emailed link with a single-use token, 30 minutes; resetting revokes all sessions.
+| Endpoint | Limit |
+|---|---|
+| `login` | 50 / 15 min per IP, 15 / 15 min per email |
+| `signup` | 10 / hour per IP |
+| `password/forgot` | 10 / hour per IP, 3 / hour per email |
+| `password/reset` | 20 / hour per IP |
+| `email/send-code`, `email/verify` | 10 and 30 / hour per IP |
+| invite view and accept | 30 / hour per IP |
+
+Over the limit: `429 RATE_LIMITED`. **Lockout**: 10 wrong passwords in a row lock the account for 15 minutes (`429 ACCOUNT_LOCKED`, even with the right password); a successful sign-in resets the count, and a password reset unlocks. The lock only blocks new sign-ins; existing sessions keep working, so someone guessing can't sign the real user out.
+
+**Email verification**: 6-digit code, 10 minutes, 5 attempts. Sent automatically at sign-up; invited users are verified when they accept (they opened the emailed link). Unverified users can sign in but can't invite others (`403 EMAIL_NOT_VERIFIED`); the client shows a banner linking to Settings.
+
+**Password reset**: `POST /auth/password/forgot` always answers the same, whether or not the email has an account. The emailed link is single-use and lasts 30 minutes; resetting revokes every session, clears any lockout and marks the email verified. **Password change** (`POST /me/password`) needs the current password, signs out other devices and gives this session a new token.
 
 **Email**: `lib/mailer.ts` `sendEmail()`. With `RESEND_API_KEY` set it calls Resend's HTTP API directly (no SDK); without it, development writes the email (including links) to the server log, and tests collect it in `testOutbox`. If sending an invitation fails, the invite is deleted and the API answers `502 EMAIL_FAILED`.
 
@@ -153,6 +166,7 @@ Every query is also filtered by `orgId`.
 | `branches:update` | | | own branch | org |
 | `branches:manage` (create, archive) | | | | ✓ |
 | `org:manage` (settings, integrations, billing) | | | | ✓ |
+| `audit:read` (activity log) | | | branch | org |
 
 The table covers identity plus a first guess at leads/reports; each CRM module adds its own rows when it's built.
 
@@ -227,6 +241,8 @@ Admins can also sign a member out everywhere: `POST /members/:id/revoke-sessions
 
 **Organization** (`/organization`): `GET`, `PATCH`, `POST /transfer-ownership`.
 
+**Audit log** (`/audit-log`, `audit:read`): `GET` (paginated, newest first; `?action=` prefix filter such as `auth.` or `member.`, `?actorId=`). Super Admins see the whole org, branch Admins see entries about their branch. Recorded: sign-up, sign-in (and failures, lockouts), sign-out, email verification, password reset and change, device sign-outs, role and status changes, invites, team and branch changes, organization settings and ownership. When a team gains or loses a member, the member's home branch gets its own entry, so their Admin sees it even for cross-branch teams.
+
 **Platform** (`/platform`, Platform Admin only, later): list orgs, suspend/unsuspend.
 
 ## Code layout
@@ -267,7 +283,7 @@ New packages: `@node-rs/argon2`, `express-rate-limit` (phase 4). Email uses `fet
 1. ✅ **Foundation** (done): schema and migration (organizations, branches, users, memberships, role assignments, sessions), password and token helpers, `loadAuthContext` and `authenticate`, signup/login/logout/session, `GET /me`. Client: auth API, sign-in/up wired, protected routes, session error handling.
 2. ✅ **Permissions** (done): catalog, `requirePermission`, `scopeWhere`, switch-role, permissions in the session response. Client: role switcher, nav gating.
 3. ✅ **Members, invites, teams, branches** (done): management endpoints, people-management rules (`permissions/policy.ts`), email sending. Client: Team page (`/team`: members, invitations, teams, branches), accept-invite page (`/auth/invite/:token`). Deferred to phase 4: "unverified users can't invite" (needs email verification).
-4. **Account security**: email verification, password reset and change, session list/revoke, rate limits, lockout, audit log.
+4. ✅ **Account security** (done): email verification, password reset and change, session list/revoke, rate limits, lockout, audit log. Client: Settings page (profile, email, password, devices), verification banner, forgot and reset password pages, Activity tab on the Team page.
 5. **Platform admin** (later): organization management for Hanux staff.
 
 Each phase ends with tests (Vitest + Supertest against a Neon branch) and a working slice in the client.

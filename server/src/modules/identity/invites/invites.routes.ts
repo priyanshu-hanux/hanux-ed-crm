@@ -1,4 +1,5 @@
-import { Router } from "express"
+import { type Request, Router } from "express"
+import { audit } from "@/modules/identity/audit/audit.service.js"
 import { z } from "zod"
 import { authenticate, getAuth } from "@/middleware/authenticate.js"
 import { validate } from "@/middleware/validate.js"
@@ -18,6 +19,21 @@ import { HttpError } from "@/utils/http-error.js"
 /** Rows are validated one by one, so one bad row doesn't fail the rest. */
 const bulkSchema = z.object({ invites: z.array(z.unknown()).min(1).max(200) })
 
+/** Audit entry about an invite, visible to the invite branch's Admins. */
+function inviteAudit(
+  req: Request,
+  action: string,
+  invite: { id: string; email: string; role: string; branch: { id: string } }
+) {
+  return audit(req, {
+    action,
+    branchId: invite.branch.id,
+    targetType: "invite",
+    targetId: invite.id,
+    metadata: { email: invite.email, role: invite.role },
+  })
+}
+
 export const invitesRouter = Router()
 invitesRouter.use(authenticate, requirePermission("members:invite"))
 
@@ -35,6 +51,7 @@ invitesRouter.post(
   validate({ body: inviteInputSchema }),
   async (req, res) => {
     const invite = await createInvite(getAuth(req), req.body as InviteInput)
+    await inviteAudit(req, "invite.sent", invite)
     sendSuccess(res, invite, { status: 201, message: "Invitation sent" })
   }
 )
@@ -64,6 +81,7 @@ invitesRouter.post(
       }
       try {
         const invite = await createInvite(auth, parsed.data)
+        await inviteAudit(req, "invite.sent", invite)
         results.push({ row: index + 1, email: invite.email, ok: true, invite })
       } catch (err) {
         if (!(err instanceof HttpError)) throw err
@@ -84,6 +102,7 @@ invitesRouter.post(
   validate({ params: idParam }),
   async (req, res) => {
     const invite = await resendInvite(getAuth(req), req.params.id as string)
+    await inviteAudit(req, "invite.resent", invite)
     sendSuccess(res, invite, { message: "Invitation sent again" })
   }
 )
@@ -92,7 +111,8 @@ invitesRouter.delete(
   "/:id",
   validate({ params: idParam }),
   async (req, res) => {
-    await revokeInvite(getAuth(req), req.params.id as string)
+    const revoked = await revokeInvite(getAuth(req), req.params.id as string)
+    await inviteAudit(req, "invite.revoked", revoked)
     sendSuccess(res, null, { message: "Invitation revoked" })
   }
 )

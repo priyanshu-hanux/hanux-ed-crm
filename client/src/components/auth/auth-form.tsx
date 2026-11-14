@@ -115,6 +115,8 @@ export const AuthForm = ({ mode = "signin" }: AuthFormProps) => {
     const { signIn, signUp } = useAuth();
     const location = useLocation();
     const reason = (location.state as AuthRedirectState | null)?.reason;
+    // A success message, e.g. after resetting the password.
+    const notice = (location.state as AuthRedirectState | null)?.notice;
 
     const isSignup = mode === "signup";
 
@@ -234,6 +236,15 @@ export const AuthForm = ({ mode = "signin" }: AuthFormProps) => {
 
                 {/* Form */}
                 {/* Why they were signed out, or why the request failed */}
+                {!formError && !isSignup && notice && (
+                    <div
+                        role="status"
+                        className="mb-5 rounded-xl border border-primary/30 bg-primary/5 px-3.5 py-3 text-sm text-foreground"
+                    >
+                        {notice}
+                    </div>
+                )}
+
                 {(formError ?? (!isSignup && reason)) && (
                     <div
                         role="alert"
@@ -361,8 +372,9 @@ export const AuthForm = ({ mode = "signin" }: AuthFormProps) => {
                                     </div>
                                 </div>
                             ) : (
-                                <button
-                                    type="button"
+                                <Link
+                                    to="/auth/forgot-password"
+                                    state={{ email: values.email.trim() }}
                                     className="
                                         cursor-pointer
                                         text-sm font-medium
@@ -373,7 +385,7 @@ export const AuthForm = ({ mode = "signin" }: AuthFormProps) => {
                                     "
                                 >
                                     Forgot password?
-                                </button>
+                                </Link>
                             )
                         }
                         right={

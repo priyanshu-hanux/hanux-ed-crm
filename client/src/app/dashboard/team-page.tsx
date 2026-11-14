@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ActivityTab } from "@/components/team/activity-tab";
 import { BranchesTab } from "@/components/team/branches-tab";
 import { InviteDialog } from "@/components/team/invite-dialog";
 import { InvitesTab } from "@/components/team/invites-tab";
@@ -32,6 +33,7 @@ export default function TeamPage() {
                     {can("members:invite") && <TabsTrigger value="invites">Invitations</TabsTrigger>}
                     <TabsTrigger value="teams">Teams</TabsTrigger>
                     {showBranches && <TabsTrigger value="branches">Branches</TabsTrigger>}
+                    {can("audit:read") && <TabsTrigger value="activity">Activity</TabsTrigger>}
                 </TabsList>
 
                 <TabsContent value="members" className="pt-3">
@@ -48,6 +50,11 @@ export default function TeamPage() {
                 {showBranches && (
                     <TabsContent value="branches" className="pt-3">
                         <BranchesTab branches={branchList} loading={branches.isLoading} />
+                    </TabsContent>
+                )}
+                {can("audit:read") && (
+                    <TabsContent value="activity" className="pt-3">
+                        <ActivityTab branches={branchList} />
                     </TabsContent>
                 )}
             </Tabs>

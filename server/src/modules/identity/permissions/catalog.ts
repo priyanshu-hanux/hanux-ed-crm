@@ -22,6 +22,7 @@ export const PERMISSIONS = [
   "branches:update",
   "branches:manage",
   "org:manage",
+  "audit:read",
 ] as const
 export type Permission = (typeof PERMISSIONS)[number]
 
@@ -63,6 +64,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionMap> = {
     "members:manage": "branch",
     "teams:manage": "branch",
     "branches:update": "branch",
+    "audit:read": "branch",
   },
   SUPER_ADMIN: {
     "leads:read": "org",
@@ -78,6 +80,7 @@ export const ROLE_PERMISSIONS: Record<Role, PermissionMap> = {
     "branches:update": "org",
     "branches:manage": true,
     "org:manage": true,
+    "audit:read": "org",
   },
 }
 

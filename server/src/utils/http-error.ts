@@ -20,6 +20,12 @@ export type ErrorCode =
   | "ALREADY_MEMBER"
   | "INVITE_INVALID"
   | "EMAIL_FAILED"
+  | "EMAIL_NOT_VERIFIED"
+  | "CODE_INVALID"
+  | "TOKEN_INVALID"
+  | "INVALID_PASSWORD"
+  | "ACCOUNT_LOCKED"
+  | "RATE_LIMITED"
   | "INTERNAL_ERROR"
 
 /** An error with an HTTP status whose message is safe to show to the client. */

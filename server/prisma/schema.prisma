@@ -46,6 +46,12 @@ enum SessionRevokedReason {
   PASSWORD_CHANGED
   MEMBER_DEACTIVATED
   NO_ROLES_LEFT
+  PASSWORD_RESET
+}
+
+enum VerificationType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
 }
 
 // ─── Tenancy ─────────────────────────────────────────────────────────────────
@@ -64,6 +70,7 @@ model Organization {
   teams       Team[]
   sessions    Session[]
   invites     Invite[]
+  auditLogs   AuditLog[]
 
   @@map("organizations")
 }
@@ -110,10 +117,31 @@ model User {
   createdAt        DateTime   @default(now()) @map("created_at")
   updatedAt        DateTime   @updatedAt @map("updated_at")
 
-  memberships Membership[]
-  sessions    Session[]
+  memberships        Membership[]
+  sessions           Session[]
+  verificationTokens VerificationToken[]
+  auditLogs          AuditLog[]
 
   @@map("users")
+}
+
+/// Email verification codes and password reset links. Only hashes are stored.
+/// Email codes are hashed together with the user id (6 digits alone are guessable).
+model VerificationToken {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  type      VerificationType
+  tokenHash String           @map("token_hash")
+  attempts  Int              @default(0)
+  expiresAt DateTime         @map("expires_at")
+  usedAt    DateTime?        @map("used_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([tokenHash])
+  @@map("verification_tokens")
 }
 
 /// A user's place in an org.
@@ -216,6 +244,34 @@ model Invite {
   @@index([orgId, email])
   @@index([branchId])
   @@map("invites")
+}
+
+// ─── Audit log ───────────────────────────────────────────────────────────────
+
+/// Who did what, when. Append-only. branchId (no foreign key, so history
+/// survives) lets branch Admins see entries about their branch. actorName is a
+/// snapshot, so entries stay readable after the actor is deleted.
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  orgId      String?  @map("org_id") @db.Uuid
+  branchId   String?  @map("branch_id") @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  actorName  String?  @map("actor_name")
+  /// e.g. "auth.login", "member.role_assigned"
+  action     String
+  targetType String?  @map("target_type")
+  targetId   String?  @map("target_id")
+  metadata   Json?
+  ip         String?
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  organization Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  actor        User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt])
+  @@index([orgId, branchId, createdAt])
+  @@map("audit_logs")
 }
 
 // ─── Sessions ────────────────────────────────────────────────────────────────

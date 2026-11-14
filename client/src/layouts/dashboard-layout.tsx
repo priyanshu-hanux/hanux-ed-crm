@@ -5,6 +5,7 @@ import {
 } from "@/components/ui/sidebar"
 import { AppHeader } from "@/components/header/header";
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
+import { VerifyEmailBanner } from "@/components/account/verify-email-banner"
 
 export const DashboardLayout = () => {
   return (
@@ -17,6 +18,7 @@ export const DashboardLayout = () => {
 
           <main className="relative flex-1 min-h-0 w-full overflow-auto scroll-thin">
             <div className="flex w-full flex-col gap-4 p-4">
+              <VerifyEmailBanner />
               <Outlet />
             </div>
           </main>

@@ -1,4 +1,5 @@
 import { Router } from "express"
+import { audit } from "@/modules/identity/audit/audit.service.js"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma.js"
 import { authenticate, getAuth } from "@/middleware/authenticate.js"
@@ -92,6 +93,13 @@ branchesRouter.post(
       data: { ...input, orgId: auth.orgId },
       select: branchSelect,
     })
+    await audit(req, {
+      action: "branch.created",
+      branchId: branch.id,
+      targetType: "branch",
+      targetId: branch.id,
+      metadata: { name: branch.name },
+    })
     sendSuccess(res, toBranchDto(branch), { status: 201 })
   }
 )
@@ -111,6 +119,13 @@ branchesRouter.patch(
       where: { id: branch.id },
       data: req.body as z.infer<typeof updateBranchSchema>,
       select: branchSelect,
+    })
+    await audit(req, {
+      action: "branch.updated",
+      branchId: branch.id,
+      targetType: "branch",
+      targetId: branch.id,
+      metadata: { ...(req.body as object) },
     })
     sendSuccess(res, toBranchDto(updated))
   }
@@ -154,6 +169,13 @@ branchesRouter.post(
         data: { status: "ARCHIVED" },
       }),
     ])
+    await audit(req, {
+      action: "branch.archived",
+      branchId: branch.id,
+      targetType: "branch",
+      targetId: branch.id,
+      metadata: { name: branch.name },
+    })
     sendSuccess(res, null, { message: "Branch archived" })
   }
 )
@@ -168,6 +190,13 @@ branchesRouter.post(
     await prisma.branch.update({
       where: { id: branch.id },
       data: { status: "ACTIVE" },
+    })
+    await audit(req, {
+      action: "branch.restored",
+      branchId: branch.id,
+      targetType: "branch",
+      targetId: branch.id,
+      metadata: { name: branch.name },
     })
     sendSuccess(res, null, { message: "Branch restored" })
   }

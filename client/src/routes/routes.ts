@@ -26,6 +26,8 @@ const TargetsPage = lazy(() => import("@/app/dashboard/targets-page"));
 const IntegrationsPage = lazy(() => import("@/app/dashboard/integrations-page"));
 const TeamPage = lazy(() => import("@/app/dashboard/team-page"));
 const AcceptInvitePage = lazy(() => import("@/app/auth/accept-invite-page"));
+const ForgotPasswordPage = lazy(() => import("@/app/auth/forgot-password-page"));
+const ResetPasswordPage = lazy(() => import("@/app/auth/reset-password-page"));
 
 export const router = createBrowserRouter([
     {
@@ -97,10 +99,13 @@ export const router = createBrowserRouter([
                     { index: true, Component: SignInPage },
                     { path: "sign-in", Component: SignInPage },
                     { path: "sign-up", Component: SignUpPage },
+                    { path: "forgot-password", Component: ForgotPasswordPage },
                 ],
             },
             // From the invitation email. Works signed in or out (it explains what to do).
             { path: "auth/invite/:token", Component: AcceptInvitePage },
+            // From the password reset email. Works signed in or out (the reset signs everyone out).
+            { path: "auth/reset-password/:token", Component: ResetPasswordPage },
         ],
     },
 ]);

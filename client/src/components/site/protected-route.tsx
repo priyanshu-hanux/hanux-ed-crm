@@ -7,6 +7,10 @@ export interface AuthRedirectState {
     from?: string;
     /** Why the user was sent to sign in. */
     reason?: string | null;
+    /** A success message for the sign-in page, e.g. "Password changed". */
+    notice?: string;
+    /** Prefills the forgot-password form. */
+    email?: string;
 }
 
 function FullPageSpinner() {

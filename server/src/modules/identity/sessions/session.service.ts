@@ -80,6 +80,19 @@ export async function switchActiveAssignment(input: {
   return { token, expiresAt: session.expiresAt }
 }
 
+/** Gives a session a new token (e.g. after a password change). */
+export async function rotateSessionToken(
+  sessionId: string
+): Promise<{ token: string; expiresAt: Date }> {
+  const token = generateToken()
+  const session = await prisma.session.update({
+    where: { id: sessionId },
+    data: { tokenHash: sha256(token) },
+    select: { expiresAt: true },
+  })
+  return { token, expiresAt: session.expiresAt }
+}
+
 export async function revokeSession(
   sessionId: string,
   reason: SessionRevokedReason

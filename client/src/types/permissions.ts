@@ -14,7 +14,8 @@ export type Permission =
     | "teams:manage"
     | "branches:update"
     | "branches:manage"
-    | "org:manage";
+    | "org:manage"
+    | "audit:read";
 
 /** `true` = allowed without a scope; a Scope = allowed within that scope. */
 export type Grant = true | Scope;

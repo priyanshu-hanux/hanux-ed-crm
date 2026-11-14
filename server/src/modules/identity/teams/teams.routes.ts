@@ -1,4 +1,5 @@
 import { Router } from "express"
+import { audit } from "@/modules/identity/audit/audit.service.js"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma.js"
 import { authenticate, getAuth } from "@/middleware/authenticate.js"
@@ -150,6 +151,13 @@ teamsRouter.post(
       },
       select: teamSelect,
     })
+    await audit(req, {
+      action: "team.created",
+      branchId: input.homeBranchId,
+      targetType: "team",
+      targetId: team.id,
+      metadata: { name: team.name },
+    })
     sendSuccess(res, toTeamDto(team), { status: 201 })
   }
 )
@@ -175,6 +183,13 @@ teamsRouter.patch(
       data: input,
       select: teamSelect,
     })
+    await audit(req, {
+      action: "team.updated",
+      branchId: team.homeBranchId,
+      targetType: "team",
+      targetId: team.id,
+      metadata: { ...input },
+    })
     sendSuccess(res, toTeamDto(updated))
   }
 )
@@ -196,6 +211,13 @@ teamsRouter.delete(
         tx,
         members.map((m) => m.id)
       )
+    })
+    await audit(req, {
+      action: "team.deleted",
+      branchId: team.homeBranchId,
+      targetType: "team",
+      targetId: team.id,
+      metadata: { name: team.name },
     })
     sendSuccess(res, null, { message: "Team deleted" })
   }
@@ -237,11 +259,44 @@ teamsRouter.put(
         data: { teamId: team.id },
       })
       await bumpAuthzVersion(tx, [...leaving, ...joining])
-      return tx.team.findUniqueOrThrow({
+      const result = await tx.team.findUniqueOrThrow({
         where: { id: team.id },
         select: teamSelect,
       })
+      return { result, leaving, joining }
     })
-    sendSuccess(res, toTeamDto(updated))
+
+    await audit(req, {
+      action: "team.members_changed",
+      branchId: team.homeBranchId,
+      targetType: "team",
+      targetId: team.id,
+      metadata: {
+        name: team.name,
+        joined: updated.joining,
+        left: updated.leaving,
+      },
+    })
+    // Each moved member's home-branch Admin sees it too (teams span branches).
+    const moved = await prisma.membership.findMany({
+      where: { id: { in: [...updated.joining, ...updated.leaving] } },
+      select: {
+        id: true,
+        homeBranchId: true,
+        user: { select: { name: true } },
+      },
+    })
+    for (const member of moved) {
+      await audit(req, {
+        action: updated.joining.includes(member.id)
+          ? "member.team_joined"
+          : "member.team_left",
+        branchId: member.homeBranchId,
+        targetType: "member",
+        targetId: member.id,
+        metadata: { name: member.user.name, team: team.name, teamId: team.id },
+      })
+    }
+    sendSuccess(res, toTeamDto(updated.result))
   }
 )

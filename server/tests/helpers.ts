@@ -16,8 +16,15 @@ export function uniqueEmail(): string {
 
 export const PASSWORD = "Str0ngPassw0rd"
 
-/** Signs up a new org and returns an agent that keeps the session cookie. */
-export async function signupAgent(overrides: Record<string, string> = {}) {
+/**
+ * Signs up a new org and returns an agent that keeps the session cookie.
+ * The owner's email is marked verified (so they can invite) unless
+ * `verified: false`; security.test.ts covers the real verification flow.
+ */
+export async function signupAgent(
+  overrides: Record<string, string> = {},
+  { verified = true }: { verified?: boolean } = {}
+) {
   const agent = request.agent(app)
   const email = uniqueEmail()
   const res = await agent.post("/v1/auth/signup").send({
@@ -30,6 +37,12 @@ export async function signupAgent(overrides: Record<string, string> = {}) {
   })
   if (res.status !== 201) {
     throw new Error(`signup failed: ${res.status} ${JSON.stringify(res.body)}`)
+  }
+  if (verified) {
+    await prisma.user.update({
+      where: { email },
+      data: { emailVerifiedAt: new Date() },
+    })
   }
   const session = await agent.get("/v1/auth/session")
   return { agent, email, session: session.body.data }
