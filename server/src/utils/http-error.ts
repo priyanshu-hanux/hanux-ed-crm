@@ -26,6 +26,7 @@ export type ErrorCode =
   | "INVALID_PASSWORD"
   | "ACCOUNT_LOCKED"
   | "RATE_LIMITED"
+  | "PLATFORM_MODE"
   | "INTERNAL_ERROR"
 
 /** An error with an HTTP status whose message is safe to show to the client. */

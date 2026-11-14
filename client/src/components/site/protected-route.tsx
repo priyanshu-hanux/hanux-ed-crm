@@ -21,9 +21,18 @@ function FullPageSpinner() {
     );
 }
 
-/** Pages for signed-in users. Others go to sign-in, then come back. */
+/** Pages open to Platform Admins while working as Platform Admin. */
+const PLATFORM_PATHS = ["/platform", "/settings"];
+const isPlatformPath = (pathname: string) =>
+    PLATFORM_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+
+/**
+ * Pages for signed-in users. Others go to sign-in, then come back.
+ * Also keeps each mode on its own pages: Platform Admins working as such stay
+ * on platform pages, and org roles can't open them.
+ */
 export const ProtectedRoute = () => {
-    const { status, signedOutReason } = useAuth();
+    const { status, signedOutReason, session } = useAuth();
     const location = useLocation();
 
     if (status === "loading") return <FullPageSpinner />;
@@ -34,6 +43,13 @@ export const ProtectedRoute = () => {
             reason: signedOutReason,
         };
         return <Navigate to="/auth/sign-in" replace state={state} />;
+    }
+
+    if (session?.mode === "platform" && !isPlatformPath(location.pathname)) {
+        return <Navigate to="/platform" replace />;
+    }
+    if (session?.mode === "org" && location.pathname.startsWith("/platform")) {
+        return <Navigate to="/" replace />;
     }
 
     return <Outlet />;

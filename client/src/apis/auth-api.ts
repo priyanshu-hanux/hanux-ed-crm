@@ -17,9 +17,13 @@ export const logout = async (): Promise<void> => {
     await authApi.post("/v1/auth/logout");
 };
 
-/** Makes another of the user's roles active. Returns the updated session. */
-export const switchRole = async (assignmentId: string): Promise<SessionInfo> => {
-    const { data } = await authApi.post<{ data: SessionInfo }>("/v1/auth/switch-role", { assignmentId });
+/**
+ * Makes another of the user's org roles active, or switches to Platform Admin
+ * (`"platform"`, Hanux staff only). Returns the updated session.
+ */
+export const switchRole = async (target: string | "platform"): Promise<SessionInfo> => {
+    const body = target === "platform" ? { platform: true } : { assignmentId: target };
+    const { data } = await authApi.post<{ data: SessionInfo }>("/v1/auth/switch-role", body);
     return data.data;
 };
 

@@ -25,6 +25,9 @@ const SettingsPage = lazy(() => import("@/app/dashboard/settings-page"));
 const TargetsPage = lazy(() => import("@/app/dashboard/targets-page"));
 const IntegrationsPage = lazy(() => import("@/app/dashboard/integrations-page"));
 const TeamPage = lazy(() => import("@/app/dashboard/team-page"));
+const PlatformOrganizationsPage = lazy(() => import("@/app/platform/organizations-page"));
+const PlatformActivityPage = lazy(() => import("@/app/platform/activity-page"));
+const PlatformTeamPage = lazy(() => import("@/app/platform/team-page"));
 const AcceptInvitePage = lazy(() => import("@/app/auth/accept-invite-page"));
 const ForgotPasswordPage = lazy(() => import("@/app/auth/forgot-password-page"));
 const ResetPasswordPage = lazy(() => import("@/app/auth/reset-password-page"));
@@ -63,6 +66,15 @@ export const router = createBrowserRouter([
                             {
                                 Component: withPermission("org:manage"),
                                 children: [{ path: "integrations", Component: IntegrationsPage }],
+                            },
+                            // Hanux staff, working as Platform Admin (ProtectedRoute keeps modes apart).
+                            {
+                                path: "platform",
+                                children: [
+                                    { index: true, Component: PlatformOrganizationsPage },
+                                    { path: "activity", Component: PlatformActivityPage },
+                                    { path: "team", Component: PlatformTeamPage },
+                                ],
                             },
                             {
                                 path: "activities",

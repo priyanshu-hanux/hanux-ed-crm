@@ -28,6 +28,7 @@ Check it is up: `GET /health` returns 200 when the database is reachable, 503 wh
 | `db:migrate` | `prisma migrate dev` (development) |
 | `db:deploy` | `prisma migrate deploy` (production) |
 | `db:studio` | Open Prisma Studio |
+| `platform:admin` | Grant, revoke or list Platform Admins (Hanux staff): `npm run platform:admin -- grant someone@hanux.com "Name"`. Not available through the API on purpose. In production: `node dist/scripts/platform-admin.js grant …` |
 
 ## Layout
 

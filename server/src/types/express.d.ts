@@ -1,10 +1,15 @@
-import type { AuthContext } from "@/modules/identity/sessions/auth-context.js"
+import type {
+  AuthContext,
+  PlatformContext,
+} from "@/modules/identity/sessions/auth-context.js"
 
 declare global {
   namespace Express {
     interface Request {
-      /** Set by the `authenticate` middleware. */
+      /** Set by `authenticate` (and `authenticateAny`) in org mode. */
       auth?: AuthContext
+      /** Set by `authenticatePlatform` (and `authenticateAny`) in platform mode. */
+      platformAuth?: PlatformContext
     }
   }
 }

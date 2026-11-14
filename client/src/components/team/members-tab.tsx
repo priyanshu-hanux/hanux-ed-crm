@@ -33,7 +33,7 @@ export function MembersTab({ branches, teams }: { branches: Branch[]; teams: Tea
     const reactivate = useIdentityAction(identityApi.reactivateMember, (m) => `${m.name} was reactivated`);
     const signOut = useIdentityAction(identityApi.revokeMemberSessions, "Signed out everywhere");
 
-    const myId = session?.membership.id;
+    const myId = session?.membership?.id;
     const manageable = (m: Member) => can("members:manage") && canManageMember(activeAssignment, myId, m);
     const multiBranch = branches.length > 1;
 

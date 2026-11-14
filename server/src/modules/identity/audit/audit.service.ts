@@ -30,7 +30,8 @@ export interface AuditEvent {
  */
 export async function audit(req: Request, event: AuditEvent): Promise<void> {
   try {
-    const actorId = event.actorId ?? req.auth?.userId ?? null
+    const actorId =
+      event.actorId ?? req.auth?.userId ?? req.platformAuth?.userId ?? null
     const actor = actorId
       ? await prisma.user.findUnique({
           where: { id: actorId },

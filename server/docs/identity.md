@@ -50,7 +50,7 @@ Organization 1──* Branch
 User 1──* VerificationToken (email verify code, password reset)
 ```
 
-**Organization**: `id`, `name`, `slug` (unique), `status` (ACTIVE, SUSPENDED), `timezone`, timestamps.
+**Organization**: `id`, `name`, `slug` (unique), `status` (ACTIVE, SUSPENDED), `suspendedAt?`, `suspendedReason?` (set by a Platform Admin), `timezone`, timestamps.
 
 **Branch**: `id`, `orgId`, `name`, `code?` (short label, e.g. `BLR`), `timezone`, `address?`, `isDefault`, `status` (ACTIVE, ARCHIVED), timestamps. Unique `(orgId, name)`. Exactly one default branch per org. A branch can only be archived once it has no active members or open records.
 
@@ -68,7 +68,7 @@ User 1──* VerificationToken (email verify code, password reset)
 **Team**: `id`, `orgId`, `homeBranchId`, `name`, `managerId?` (Membership), timestamps. The manager must hold a MANAGER assignment in the team's home branch.
 
 **Session**: one per signed-in device.
-`id`, `tokenHash` (unique), `userId`, `membershipId`, `orgId`, `activeAssignmentId`, `userAgent`, `ip`, `createdAt`, `lastUsedAt`, `expiresAt` (absolute limit), `revokedAt?`, `revokedReason?` (SIGNED_OUT, REVOKED_BY_USER, REVOKED_BY_ADMIN, PASSWORD_CHANGED, MEMBER_DEACTIVATED, ...).
+`id`, `tokenHash` (unique), `userId`, `membershipId?`, `orgId?` (empty only in platform mode), `activeAssignmentId`, `platformMode`, `userAgent`, `ip`, `createdAt`, `lastUsedAt`, `expiresAt` (absolute limit), `revokedAt?`, `revokedReason?` (SIGNED_OUT, REVOKED_BY_USER, REVOKED_BY_ADMIN, PASSWORD_CHANGED, MEMBER_DEACTIVATED, ...).
 
 **Invite**: `id`, `orgId`, `email`, `role`, `branchId` (the new member's home branch, and the role's branch; Super Admin invites default to the default branch), `teamId?`, `invitedById`, `tokenHash`, `expiresAt` (7 days), `acceptedAt?`, `revokedAt?`. A new invite to the same email revokes the previous open one. Accepting marks the email verified (they opened the emailed link).
 
@@ -180,7 +180,13 @@ The table covers identity plus a first guess at leads/reports; each CRM module a
 
 ### Platform Admin
 
-`isPlatformAdmin` users (Hanux staff) get a "Platform Admin" entry in the role switcher, which opens platform-only routes (`/v1/platform/*`): list organizations, suspend/unsuspend. They don't see an organization's data. Support access to an org (temporary, audited, with the org's consent) is a later feature.
+`isPlatformAdmin` users (Hanux staff) manage organizations as accounts: list them, suspend and restore them. They don't see an organization's CRM data. Support access to an org (temporary, audited, with the org's consent) is a later feature.
+
+- **Granting** is deliberately not in the API: only someone with server and database access can run `npm run platform:admin -- grant <email> [name]` (also `revoke <email>`, `list`). For a new email it creates the account with an unusable password and emails a link to set one.
+- **Two modes per session.** A session works either in an org role (`mode: "org"`) or as Platform Admin (`mode: "platform"`, `Session.platformMode`). Staff who also belong to an org sign in to their org role and switch with `POST /auth/switch-role { platform: true }`, and back with `{ assignmentId }`. Staff without an org (or whose org is suspended) sign in straight to platform mode; their session has no org (a database check allows that only in platform mode).
+- **Kept apart.** Org routes answer `403 PLATFORM_MODE` in platform mode, and platform routes answer `403 FORBIDDEN` in org mode. The client keeps platform mode on `/platform` and `/settings`.
+- **Checked every request.** Revoking `isPlatformAdmin` ends platform mode on the next request: the session falls back to the person's org role (`403 PERMISSIONS_CHANGED`), or ends if they have none.
+- **Suspending** an org (with a reason, stored on the org) cuts its members off on their next request and blocks sign-in until restored. The entry is filed in the org's own audit log, so its Super Admins see who suspended it and why. `/v1/platform/audit-log` lists all `platform.*` entries.
 
 ### Code
 
@@ -243,7 +249,7 @@ Admins can also sign a member out everywhere: `POST /members/:id/revoke-sessions
 
 **Audit log** (`/audit-log`, `audit:read`): `GET` (paginated, newest first; `?action=` prefix filter such as `auth.` or `member.`, `?actorId=`). Super Admins see the whole org, branch Admins see entries about their branch. Recorded: sign-up, sign-in (and failures, lockouts), sign-out, email verification, password reset and change, device sign-outs, role and status changes, invites, team and branch changes, organization settings and ownership. When a team gains or loses a member, the member's home branch gets its own entry, so their Admin sees it even for cross-branch teams.
 
-**Platform** (`/platform`, Platform Admin only, later): list orgs, suspend/unsuspend.
+**Platform** (`/platform`, platform mode only): `GET /stats` (organizations, suspended, active users, sessions used in 24 h), `GET /organizations` (search, status; with owner, member and branch counts, last activity), `GET /organizations/:id`, `POST /organizations/:id/suspend { reason }`, `POST /organizations/:id/restore`, `GET /audit-log` (`?actorId=` for one admin), `GET /admins` (everyone with Platform Admin access, their own org, last sign-in and platform actions; read-only, granting stays in the script).
 
 ## Code layout
 
@@ -284,7 +290,7 @@ New packages: `@node-rs/argon2`, `express-rate-limit` (phase 4). Email uses `fet
 2. ✅ **Permissions** (done): catalog, `requirePermission`, `scopeWhere`, switch-role, permissions in the session response. Client: role switcher, nav gating.
 3. ✅ **Members, invites, teams, branches** (done): management endpoints, people-management rules (`permissions/policy.ts`), email sending. Client: Team page (`/team`: members, invitations, teams, branches), accept-invite page (`/auth/invite/:token`). Deferred to phase 4: "unverified users can't invite" (needs email verification).
 4. ✅ **Account security** (done): email verification, password reset and change, session list/revoke, rate limits, lockout, audit log. Client: Settings page (profile, email, password, devices), verification banner, forgot and reset password pages, Activity tab on the Team page.
-5. **Platform admin** (later): organization management for Hanux staff.
+5. ✅ **Platform admin** (done): platform mode sessions, `platform:admin` script, platform endpoints. Client: "Platform Admin" in the role switcher, Organizations page (stats, suspend, restore), Platform activity page (filter by admin), Platform team page (read-only list of admins).
 
 Each phase ends with tests (Vitest + Supertest against a Neon branch) and a working slice in the client.
 

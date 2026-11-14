@@ -1,7 +1,7 @@
-import { Router } from "express"
+import { type Request, Router } from "express"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma.js"
-import { authenticate, getAuth } from "@/middleware/authenticate.js"
+import { authenticateAny, getAnySession } from "@/middleware/authenticate.js"
 import { validate } from "@/middleware/validate.js"
 import {
   changePassword,
@@ -37,11 +37,14 @@ const profileSelect = {
 
 export const meRouter = Router()
 
-meRouter.use(authenticate)
+// Your own account works in either mode, including for Platform Admins.
+meRouter.use(authenticateAny)
+
+const me = (req: Request) => getAnySession(req).auth
 
 meRouter.get("/", async (req, res) => {
   const user = await prisma.user.findUniqueOrThrow({
-    where: { id: getAuth(req).userId },
+    where: { id: me(req).userId },
     select: profileSelect,
   })
   sendSuccess(res, user)
@@ -49,7 +52,7 @@ meRouter.get("/", async (req, res) => {
 
 meRouter.patch("/", validate({ body: profileSchema }), async (req, res) => {
   const user = await prisma.user.update({
-    where: { id: getAuth(req).userId },
+    where: { id: me(req).userId },
     data: req.body as z.infer<typeof profileSchema>,
     select: profileSelect,
   })
@@ -61,7 +64,7 @@ meRouter.post(
   "/password",
   validate({ body: passwordSchema }),
   async (req, res) => {
-    const auth = getAuth(req)
+    const auth = me(req)
     const input = req.body as z.infer<typeof passwordSchema>
     await changePassword(auth, input.currentPassword, input.newPassword)
     const { token, expiresAt } = await rotateSessionToken(auth.sessionId)
@@ -79,7 +82,7 @@ meRouter.post(
 
 /** Devices you're signed in on. */
 meRouter.get("/sessions", async (req, res) => {
-  sendSuccess(res, await listSessions(getAuth(req)))
+  sendSuccess(res, await listSessions(me(req)))
 })
 
 meRouter.delete(
@@ -87,7 +90,7 @@ meRouter.delete(
   validate({ params: idParam }),
   async (req, res) => {
     const id = req.params.id as string
-    await revokeOwnSession(getAuth(req), id)
+    await revokeOwnSession(me(req), id)
     await audit(req, {
       action: "session.revoked",
       targetType: "session",
@@ -98,7 +101,7 @@ meRouter.delete(
 )
 
 meRouter.post("/sessions/revoke-others", async (req, res) => {
-  const count = await revokeOtherSessions(getAuth(req))
+  const count = await revokeOtherSessions(me(req))
   if (count > 0) {
     await audit(req, {
       action: "session.revoked_others",

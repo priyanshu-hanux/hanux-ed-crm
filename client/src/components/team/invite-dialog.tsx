@@ -52,7 +52,7 @@ export function InviteDialog({
                 isSuperAdmin
                     ? true
                     : isManager
-                      ? team.manager?.id === session?.membership.id
+                      ? team.manager?.id === session?.membership?.id
                       : team.homeBranch.id === activeAssignment?.branch?.id
             ),
         [teams, isSuperAdmin, isManager, session, activeAssignment]

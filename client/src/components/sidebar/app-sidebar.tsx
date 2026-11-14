@@ -10,7 +10,8 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 
-import { navigation, type Role } from "@/configs/sidebar";
+import { useNavigate } from "react-router";
+import { navigation, PLATFORM_ROLE, platformNavigation, type Role } from "@/configs/sidebar";
 import { appIcons } from "@/configs/icons";
 import { Separator } from "@/components/ui/separator";
 import { TimezoneSwitcher } from "@/components/sidebar/timezone/timezone-switcher";
@@ -32,15 +33,20 @@ export function AppSidebar(
   props: React.ComponentProps<typeof Sidebar>
 ) {
   const { session, status, can, switchRole } = useAuth();
+  const navigate = useNavigate();
   const [switching, setSwitching] = React.useState(false);
 
-  const roles: Role[] =
-    session?.assignments.map((assignment) => ({
+  const roles: Role[] = [
+    ...(session?.assignments.map((assignment) => ({
       id: assignment.id,
       name: assignmentLabel(assignment, session.branches.length),
       logo: ROLE_ICONS[assignment.role],
-      plan: session.organization.name,
-    })) ?? [];
+      plan: session.organization?.name ?? "",
+    })) ?? []),
+    // Hanux staff can also work as Platform Admin.
+    ...(session?.user.isPlatformAdmin ? [PLATFORM_ROLE] : []),
+  ];
+  const activeRoleId = session?.mode === "platform" ? PLATFORM_ROLE.id : (session?.activeAssignmentId ?? undefined);
 
   const handleRoleChange = async (role: Role) => {
     if (!role.id) return;
@@ -48,6 +54,8 @@ export function AppSidebar(
     try {
       await switchRole(role.id);
       toast.success(`You're now working as ${role.name}`);
+      // Platform and org pages don't overlap: go to the start of the new mode.
+      navigate(role.id === PLATFORM_ROLE.id ? "/platform" : "/");
     } catch (error) {
       toast.error(isApiError(error) ? error.message : "Couldn't switch role");
     } finally {
@@ -55,14 +63,15 @@ export function AppSidebar(
     }
   };
 
-  const visibleNavigation = filterNavigation(navigation, can);
+  const visibleNavigation =
+    session?.mode === "platform" ? platformNavigation : filterNavigation(navigation, can);
 
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader className="h-14 justify-center">
         <RoleSwitcher
           roles={roles}
-          activeRoleId={session?.activeAssignmentId}
+          activeRoleId={activeRoleId}
           loading={status === "loading"}
           switching={switching}
           onRoleChange={handleRoleChange}

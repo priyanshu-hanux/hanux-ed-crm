@@ -11,7 +11,7 @@ import type {
 } from "@/modules/identity/auth/auth.schemas.js"
 import type { AuditEvent } from "@/modules/identity/audit/audit.service.js"
 import { pickBroadest } from "@/modules/identity/roles.js"
-import type { AuthContext } from "@/modules/identity/sessions/auth-context.js"
+import type { LoadedSession } from "@/modules/identity/sessions/auth-context.js"
 import {
   createSession,
   type NewSession,
@@ -136,6 +136,7 @@ export async function login(
       id: true,
       passwordHash: true,
       status: true,
+      isPlatformAdmin: true,
       failedLoginCount: true,
       lockedUntil: true,
       memberships: {
@@ -201,20 +202,24 @@ export async function login(
 
   // v1: one organization per user.
   const membership = user.memberships[0]
-  if (!membership) {
-    throw HttpError.forbidden(
-      "You don't belong to any organization",
-      "NO_ORGANIZATION"
-    )
-  }
-  if (membership.organization.status !== "ACTIVE") {
-    throw HttpError.forbidden(
-      "Your organization has been suspended",
-      "ORGANIZATION_SUSPENDED"
-    )
-  }
-  const assignment = pickBroadest(membership.roleAssignments)
-  if (!assignment) {
+  const assignment = membership && pickBroadest(membership.roleAssignments)
+  const orgUsable =
+    membership?.organization.status === "ACTIVE" && assignment !== undefined
+
+  // Hanux staff without a usable org role sign in as Platform Admin.
+  if (!orgUsable && !user.isPlatformAdmin) {
+    if (!membership) {
+      throw HttpError.forbidden(
+        "You don't belong to any organization",
+        "NO_ORGANIZATION"
+      )
+    }
+    if (membership.organization.status !== "ACTIVE") {
+      throw HttpError.forbidden(
+        "Your organization has been suspended",
+        "ORGANIZATION_SUSPENDED"
+      )
+    }
     throw HttpError.forbidden(
       "You don't have a role in this organization",
       "NO_ORGANIZATION"
@@ -224,12 +229,20 @@ export async function login(
   const [session] = await Promise.all([
     createSession(
       prisma,
-      {
-        userId: user.id,
-        membershipId: membership.id,
-        orgId: membership.orgId,
-        activeAssignmentId: assignment.id,
-      },
+      orgUsable
+        ? {
+            userId: user.id,
+            membershipId: membership.id,
+            orgId: membership.orgId,
+            activeAssignmentId: assignment.id,
+          }
+        : {
+            userId: user.id,
+            membershipId: membership?.id ?? null,
+            orgId: membership?.orgId ?? null,
+            activeAssignmentId: assignment?.id ?? null,
+            platformMode: true,
+          },
       meta
     ),
     prisma.user.update({
@@ -248,73 +261,92 @@ const accountLocked = () =>
     "Too many failed sign-in attempts. Try again in 15 minutes, or reset your password."
   )
 
-/** Everything the client needs about the signed-in user, in one response. */
-export async function getSessionInfo(auth: AuthContext) {
-  const membership = await prisma.membership.findUniqueOrThrow({
-    where: { id: auth.membershipId },
-    select: {
-      id: true,
-      isOwner: true,
-      homeBranchId: true,
-      teamId: true,
-      authzVersion: true,
-      user: {
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          avatarUrl: true,
-          emailVerifiedAt: true,
-          isPlatformAdmin: true,
-        },
+/**
+ * Everything the client needs about the signed-in user, in one response.
+ * In platform mode there is no active org role; their own org (if any) is
+ * still returned so the role switcher can switch back to it.
+ */
+export async function getSessionInfo(loaded: LoadedSession) {
+  const { auth } = loaded
+  const [user, membership] = await Promise.all([
+    prisma.user.findUniqueOrThrow({
+      where: { id: auth.userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        avatarUrl: true,
+        emailVerifiedAt: true,
+        isPlatformAdmin: true,
       },
-      organization: {
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          timezone: true,
-          branches: {
-            where: { status: "ACTIVE" },
-            orderBy: [{ isDefault: "desc" }, { name: "asc" }],
-            select: {
-              id: true,
-              name: true,
-              code: true,
-              timezone: true,
-              isDefault: true,
+    }),
+    auth.membershipId
+      ? prisma.membership.findUnique({
+          where: { id: auth.membershipId },
+          select: {
+            id: true,
+            isOwner: true,
+            homeBranchId: true,
+            teamId: true,
+            authzVersion: true,
+            organization: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                timezone: true,
+                branches: {
+                  where: { status: "ACTIVE" },
+                  orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+                  select: {
+                    id: true,
+                    name: true,
+                    code: true,
+                    timezone: true,
+                    isDefault: true,
+                  },
+                },
+              },
+            },
+            roleAssignments: {
+              orderBy: { createdAt: "asc" },
+              select: {
+                id: true,
+                role: true,
+                branch: { select: { id: true, name: true } },
+              },
             },
           },
-        },
-      },
-      roleAssignments: {
-        orderBy: { createdAt: "asc" },
-        select: {
-          id: true,
-          role: true,
-          branch: { select: { id: true, name: true } },
-        },
-      },
-    },
-  })
+        })
+      : null,
+  ])
 
-  const { branches, ...organization } = membership.organization
+  const organization = membership
+    ? {
+        id: membership.organization.id,
+        name: membership.organization.name,
+        slug: membership.organization.slug,
+        timezone: membership.organization.timezone,
+      }
+    : null
 
   return {
-    user: membership.user,
+    /** "org": working in an org role. "platform": working as Platform Admin. */
+    mode: loaded.mode,
+    user,
     organization,
-    branches,
-    membership: {
+    branches: membership?.organization.branches ?? [],
+    membership: membership && {
       id: membership.id,
       isOwner: membership.isOwner,
       homeBranchId: membership.homeBranchId,
       teamId: membership.teamId,
     },
-    assignments: membership.roleAssignments,
-    activeAssignmentId: auth.assignmentId,
+    assignments: membership?.roleAssignments ?? [],
+    activeAssignmentId: loaded.mode === "org" ? loaded.auth.assignmentId : null,
     /** What the active role may do: permission → true or a scope. */
-    permissions: auth.permissions,
-    authzVersion: membership.authzVersion,
+    permissions: loaded.mode === "org" ? loaded.auth.permissions : {},
+    authzVersion: membership?.authzVersion ?? 0,
   }
 }
 

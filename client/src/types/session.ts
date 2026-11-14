@@ -43,17 +43,21 @@ export interface RoleAssignment {
 
 /** Response of GET /v1/auth/session. */
 export interface SessionInfo {
+    /** "org": working in an org role. "platform": working as Platform Admin (Hanux staff). */
+    mode: "org" | "platform";
     user: SessionUser;
-    organization: SessionOrganization;
+    /** null for Platform Admins without an organization. */
+    organization: SessionOrganization | null;
     branches: SessionBranch[];
     membership: {
         id: string;
         isOwner: boolean;
         homeBranchId: string;
         teamId: string | null;
-    };
+    } | null;
     assignments: RoleAssignment[];
-    activeAssignmentId: string;
+    /** null in platform mode. */
+    activeAssignmentId: string | null;
     /** What the active role may do. */
     permissions: PermissionMap;
     authzVersion: number;

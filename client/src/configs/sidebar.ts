@@ -1,3 +1,4 @@
+import { Building2, Globe, History, ShieldCheck } from "lucide-react";
 import { appIcons } from "@/configs/icons";
 import type { NavGroup } from "@/types/app-layout";
 
@@ -14,6 +15,30 @@ export const GUEST_ROLE: Role = {
     logo: appIcons.incognito,
     plan: "Visitor"
 }
+
+/** Role switcher entry for Hanux staff. */
+export const PLATFORM_ROLE: Role = {
+    id: "platform",
+    name: "Platform Admin",
+    logo: Globe,
+    plan: "Hanux",
+}
+
+/** Navigation while working as Platform Admin. */
+export const platformNavigation: NavGroup[] = [
+    {
+        groupTitle: "Platform",
+        items: [
+            { title: "Organizations", url: "/platform", icon: Building2 },
+            { title: "Activity", url: "/platform/activity", icon: History },
+            { title: "Platform team", url: "/platform/team", icon: ShieldCheck },
+        ],
+    },
+    {
+        groupTitle: "Account",
+        items: [{ title: "Settings", url: "/settings", icon: appIcons.settings }],
+    },
+]
 
 /** Items with a `permission` are hidden from roles that lack it. */
 export const navigation: NavGroup[] = [

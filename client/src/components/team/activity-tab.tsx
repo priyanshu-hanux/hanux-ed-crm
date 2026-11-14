@@ -19,6 +19,7 @@ const FILTERS = [
     { value: "team.", label: "Teams" },
     { value: "branch.", label: "Branches" },
     { value: "org.", label: "Organization" },
+    { value: "platform.", label: "Hanux support" },
 ];
 
 /** Plain-language description of an audit entry. */
@@ -62,6 +63,8 @@ function describe(entry: AuditEntry, branchName: (id: unknown) => string): strin
         case "branch.restored": return `restored the ${name} branch`;
         case "org.updated": return "updated organization settings";
         case "org.ownership_transferred": return "transferred ownership of the organization";
+        case "platform.org_suspended": return `(Hanux) suspended the organization: “${String(m.reason ?? "")}”`;
+        case "platform.org_restored": return "(Hanux) restored the organization";
         default: return entry.action;
     }
 }

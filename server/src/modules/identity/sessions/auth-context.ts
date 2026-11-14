@@ -13,7 +13,7 @@ import {
 import { revokeSession } from "@/modules/identity/sessions/session.service.js"
 import { HttpError } from "@/utils/http-error.js"
 
-/** Who is making the request, and with which role. Set on req.auth. */
+/** Who is making the request, and with which org role. Set on req.auth. */
 export interface AuthContext {
   sessionId: string
   userId: string
@@ -31,15 +31,31 @@ export interface AuthContext {
   permissions: PermissionMap
 }
 
+/** A Hanux staff member working as Platform Admin. Set on req.platformAuth. */
+export interface PlatformContext {
+  sessionId: string
+  userId: string
+  /** Their own org membership, if they have one (to switch back to it). */
+  membershipId: string | null
+  orgId: string | null
+}
+
+export type LoadedSession =
+  | { mode: "org"; auth: AuthContext }
+  | { mode: "platform"; auth: PlatformContext }
+
 const revoked = (message: string) =>
   HttpError.unauthorized(message, "SESSION_REVOKED")
+
+const permissionsChanged = (message: string) =>
+  HttpError.forbidden(message, "PERMISSIONS_CHANGED")
 
 /**
  * The only place that reads session and permission data for a request.
  * Checks everything on every request, so removed access ends immediately.
  * A Redis cache, when added, goes inside this function.
  */
-export async function loadAuthContext(token: string): Promise<AuthContext> {
+export async function loadSession(token: string): Promise<LoadedSession> {
   const session = await prisma.session.findUnique({
     where: { tokenHash: sha256(token) },
     include: {
@@ -76,6 +92,44 @@ export async function loadAuthContext(token: string): Promise<AuthContext> {
   if (session.user.status !== "ACTIVE") {
     throw revoked("Your account has been disabled.")
   }
+
+  const membershipUsable =
+    session.membership?.status === "ACTIVE" &&
+    session.membership.organization.status === "ACTIVE"
+
+  // ─── Platform mode ──────────────────────────────────────────────────────
+  if (session.platformMode) {
+    if (!session.user.isPlatformAdmin) {
+      // Platform access was removed: fall back to their org role, if any.
+      if (membershipUsable) {
+        await prisma.session.update({
+          where: { id: session.id },
+          data: { platformMode: false },
+        })
+        throw permissionsChanged(
+          "Your Platform Admin access was removed. You've been switched to your organization role."
+        )
+      }
+      await revokeSession(session.id, "NO_ROLES_LEFT")
+      throw revoked("Your Platform Admin access was removed.")
+    }
+    await touch(session.id, session.lastUsedAt, now)
+    return {
+      mode: "platform",
+      auth: {
+        sessionId: session.id,
+        userId: session.userId,
+        membershipId: session.membershipId,
+        orgId: session.orgId,
+      },
+    }
+  }
+
+  // ─── Org mode ───────────────────────────────────────────────────────────
+  // The database guarantees org sessions have a membership and an org.
+  if (!session.membership || !session.membershipId || !session.orgId) {
+    throw revoked("Please sign in again.")
+  }
   if (session.membership.status !== "ACTIVE") {
     throw revoked("Your access to this organization has been removed.")
   }
@@ -99,30 +153,49 @@ export async function loadAuthContext(token: string): Promise<AuthContext> {
       where: { id: session.id },
       data: { activeAssignmentId: next.id },
     })
-    throw HttpError.forbidden(
-      "The role you were using was removed. You've been switched to another of your roles.",
-      "PERMISSIONS_CHANGED"
+    throw permissionsChanged(
+      "The role you were using was removed. You've been switched to another of your roles."
     )
   }
 
-  if (session.lastUsedAt.getTime() + SESSION_TOUCH_INTERVAL_MS <= now) {
+  await touch(session.id, session.lastUsedAt, now)
+
+  return {
+    mode: "org",
+    auth: {
+      sessionId: session.id,
+      userId: session.userId,
+      orgId: session.orgId,
+      membershipId: session.membershipId,
+      isOwner: session.membership.isOwner,
+      assignmentId: session.activeAssignment.id,
+      role: session.activeAssignment.role,
+      branchId: session.activeAssignment.branchId,
+      isPlatformAdmin: session.user.isPlatformAdmin,
+      authzVersion: session.membership.authzVersion,
+      permissions: permissionsFor(session.activeAssignment.role),
+    },
+  }
+}
+
+/** lastUsedAt is written at most every few minutes. */
+async function touch(sessionId: string, lastUsedAt: Date, now: number) {
+  if (lastUsedAt.getTime() + SESSION_TOUCH_INTERVAL_MS <= now) {
     await prisma.session.update({
-      where: { id: session.id },
+      where: { id: sessionId },
       data: { lastUsedAt: new Date(now) },
     })
   }
+}
 
-  return {
-    sessionId: session.id,
-    userId: session.userId,
-    orgId: session.orgId,
-    membershipId: session.membershipId,
-    isOwner: session.membership.isOwner,
-    assignmentId: session.activeAssignment.id,
-    role: session.activeAssignment.role,
-    branchId: session.activeAssignment.branchId,
-    isPlatformAdmin: session.user.isPlatformAdmin,
-    authzVersion: session.membership.authzVersion,
-    permissions: permissionsFor(session.activeAssignment.role),
+/** For org routes: refuses sessions working as Platform Admin. */
+export async function loadAuthContext(token: string): Promise<AuthContext> {
+  const loaded = await loadSession(token)
+  if (loaded.mode === "platform") {
+    throw HttpError.forbidden(
+      "You're working as Platform Admin. Switch to an organization role to use this.",
+      "PLATFORM_MODE"
+    )
   }
+  return loaded.auth
 }

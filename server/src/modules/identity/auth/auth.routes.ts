@@ -2,7 +2,7 @@ import { type Request, Router } from "express"
 import { z } from "zod"
 import { logger } from "@/lib/logger.js"
 import { limits } from "@/lib/rate-limit.js"
-import { authenticate, getAuth } from "@/middleware/authenticate.js"
+import { authenticateAny, getAnySession } from "@/middleware/authenticate.js"
 import { validate } from "@/middleware/validate.js"
 import {
   newPassword,
@@ -30,7 +30,7 @@ import {
   acceptInviteSchema,
   viewInvite,
 } from "@/modules/identity/invites/invites.service.js"
-import { loadAuthContext } from "@/modules/identity/sessions/auth-context.js"
+import { loadSession } from "@/modules/identity/sessions/auth-context.js"
 import {
   clearSessionCookie,
   readSessionCookie,
@@ -38,7 +38,7 @@ import {
 } from "@/modules/identity/sessions/session.cookie.js"
 import {
   revokeSessionByToken,
-  switchActiveAssignment,
+  switchSessionRole,
   type RequestMeta,
 } from "@/modules/identity/sessions/session.service.js"
 import { prisma } from "@/lib/prisma.js"
@@ -127,25 +127,38 @@ authRouter.post("/logout", async (req, res) => {
   sendSuccess(res, null, { message: "Signed out" })
 })
 
-authRouter.get("/session", authenticate, async (req, res) => {
-  sendSuccess(res, await getSessionInfo(getAuth(req)))
+authRouter.get("/session", authenticateAny, async (req, res) => {
+  sendSuccess(res, await getSessionInfo(getAnySession(req)))
 })
 
-/** Makes another of the member's roles active; returns the new session. */
+/**
+ * Switches to another of the member's org roles (`{ assignmentId }`), or to
+ * Platform Admin (`{ platform: true }`, Hanux staff only). Returns the new session.
+ */
 authRouter.post(
   "/switch-role",
-  authenticate,
+  authenticateAny,
   validate({ body: switchRoleSchema }),
   async (req, res) => {
-    const auth = getAuth(req)
-    const { assignmentId } = req.body as SwitchRoleInput
-    const { token, expiresAt } = await switchActiveAssignment({
+    const { auth } = getAnySession(req)
+    const target = req.body as SwitchRoleInput
+    const { token, expiresAt } = await switchSessionRole({
       sessionId: auth.sessionId,
+      userId: auth.userId,
       membershipId: auth.membershipId,
-      assignmentId,
+      target,
     })
     setSessionCookie(res, token, expiresAt)
-    sendSuccess(res, await getSessionInfo(await loadAuthContext(token)))
+    if ("platform" in target) {
+      await audit(req, {
+        action: "platform.mode_entered",
+        orgId: null,
+        actorId: auth.userId,
+        targetType: "user",
+        targetId: auth.userId,
+      })
+    }
+    sendSuccess(res, await getSessionInfo(await loadSession(token)))
   }
 )
 
@@ -153,21 +166,21 @@ authRouter.post(
 
 authRouter.post(
   "/email/send-code",
-  authenticate,
+  authenticateAny,
   limits.emailCode,
   async (req, res) => {
-    await sendVerificationCode(getAuth(req).userId)
+    await sendVerificationCode(getAnySession(req).auth.userId)
     sendSuccess(res, null, { message: "Code sent" })
   }
 )
 
 authRouter.post(
   "/email/verify",
-  authenticate,
+  authenticateAny,
   limits.emailVerify,
   validate({ body: verifyCodeBody }),
   async (req, res) => {
-    const auth = getAuth(req)
+    const { auth } = getAnySession(req)
     await verifyEmailCode(auth.userId, (req.body as { code: string }).code)
     await audit(req, {
       action: "auth.email_verified",

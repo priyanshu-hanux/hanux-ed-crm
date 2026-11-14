@@ -136,6 +136,10 @@ export async function cleanup() {
   await prisma.organization.deleteMany({
     where: { id: { in: orgs.map((m) => m.orgId) } },
   })
+  // Entries without an org (e.g. a Platform Admin with no org of their own).
+  await prisma.auditLog.deleteMany({
+    where: { orgId: null, actor: { email: { in: emails } } },
+  })
   await prisma.user.deleteMany({ where: { email: { in: emails } } })
   createdEmails.clear()
 }

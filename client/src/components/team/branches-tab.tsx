@@ -92,7 +92,7 @@ function BranchDialog({ branch, onClose }: { branch: Branch | null; onClose: () 
     const { session } = useAuth();
     const [name, setName] = useState(branch?.name ?? "");
     const [code, setCode] = useState(branch?.code ?? "");
-    const [timezone, setTimezone] = useState(branch?.timezone ?? session?.organization.timezone ?? "UTC");
+    const [timezone, setTimezone] = useState(branch?.timezone ?? session?.organization?.timezone ?? "UTC");
     const [address, setAddress] = useState(branch?.address ?? "");
     const timeZones = useMemo(() => Intl.supportedValuesOf("timeZone"), []);
 

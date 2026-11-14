@@ -5,7 +5,9 @@ import { generateToken, sha256 } from "@/lib/crypto.js"
 import { sendEmail } from "@/lib/mailer.js"
 import { hashPassword, verifyPassword } from "@/lib/password.js"
 import { prisma } from "@/lib/prisma.js"
-import type { AuthContext } from "@/modules/identity/sessions/auth-context.js"
+
+/** The parts of a session (org or platform mode) these functions need. */
+type SessionRef = { userId: string; sessionId: string }
 import { HttpError } from "@/utils/http-error.js"
 
 const MINUTE = 60 * 1000
@@ -223,7 +225,7 @@ export async function resetPassword(
 
 /** Changes the password; every other device is signed out. */
 export async function changePassword(
-  auth: AuthContext,
+  auth: SessionRef,
   currentPassword: string,
   password: string
 ): Promise<void> {
@@ -256,7 +258,7 @@ export async function changePassword(
   ])
 }
 
-export async function listSessions(auth: AuthContext) {
+export async function listSessions(auth: SessionRef) {
   const sessions = await prisma.session.findMany({
     where: {
       userId: auth.userId,
@@ -276,7 +278,7 @@ export async function listSessions(auth: AuthContext) {
 }
 
 /** Signs out one of your other devices. Use sign out for this one. */
-export async function revokeOwnSession(auth: AuthContext, sessionId: string) {
+export async function revokeOwnSession(auth: SessionRef, sessionId: string) {
   if (sessionId === auth.sessionId) {
     throw HttpError.badRequest("Use sign out to end this session")
   }
@@ -287,7 +289,7 @@ export async function revokeOwnSession(auth: AuthContext, sessionId: string) {
   if (count === 0) throw HttpError.notFound("Session not found")
 }
 
-export async function revokeOtherSessions(auth: AuthContext): Promise<number> {
+export async function revokeOtherSessions(auth: SessionRef): Promise<number> {
   const { count } = await prisma.session.updateMany({
     where: {
       userId: auth.userId,

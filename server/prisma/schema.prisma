@@ -57,13 +57,16 @@ enum VerificationType {
 // ─── Tenancy ─────────────────────────────────────────────────────────────────
 
 model Organization {
-  id        String             @id @default(uuid()) @db.Uuid
-  name      String
-  slug      String             @unique
-  status    OrganizationStatus @default(ACTIVE)
-  timezone  String             @default("UTC")
-  createdAt DateTime           @default(now()) @map("created_at")
-  updatedAt DateTime           @updatedAt @map("updated_at")
+  id              String             @id @default(uuid()) @db.Uuid
+  name            String
+  slug            String             @unique
+  status          OrganizationStatus @default(ACTIVE)
+  timezone        String             @default("UTC")
+  /// Set by a Platform Admin; members can't sign in while suspended.
+  suspendedAt     DateTime?          @map("suspended_at")
+  suspendedReason String?            @map("suspended_reason")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
 
   branches    Branch[]
   memberships Membership[]
@@ -282,8 +285,11 @@ model Session {
   id                 String                @id @default(uuid()) @db.Uuid
   tokenHash          String                @unique @map("token_hash")
   userId             String                @map("user_id") @db.Uuid
-  membershipId       String                @map("membership_id") @db.Uuid
-  orgId              String                @map("org_id") @db.Uuid
+  /// NULL only for Platform Admins without an organization (check constraint).
+  membershipId       String?               @map("membership_id") @db.Uuid
+  orgId              String?               @map("org_id") @db.Uuid
+  /// Working as Platform Admin (Hanux staff) instead of in an org role.
+  platformMode       Boolean               @default(false) @map("platform_mode")
   /// Set to NULL when the assignment is removed; the next request switches
   /// the session to another assignment or ends it.
   activeAssignmentId String?               @map("active_assignment_id") @db.Uuid
@@ -296,8 +302,8 @@ model Session {
   revokedReason      SessionRevokedReason? @map("revoked_reason")
 
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  membership       Membership      @relation(fields: [membershipId], references: [id], onDelete: Cascade)
-  organization     Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  membership       Membership?     @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  organization     Organization?   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   activeAssignment RoleAssignment? @relation(fields: [activeAssignmentId], references: [id], onDelete: SetNull)
 
   @@index([userId])

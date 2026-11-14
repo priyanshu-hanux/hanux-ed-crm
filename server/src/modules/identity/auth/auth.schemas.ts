@@ -37,9 +37,11 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(128),
 })
 
-export const switchRoleSchema = z.object({
-  assignmentId: z.uuid(),
-})
+/** One of your org roles, or Platform Admin (Hanux staff). */
+export const switchRoleSchema = z.union([
+  z.object({ assignmentId: z.uuid() }),
+  z.object({ platform: z.literal(true) }),
+])
 
 export type SignupInput = z.infer<typeof signupSchema>
 export type LoginInput = z.infer<typeof loginSchema>

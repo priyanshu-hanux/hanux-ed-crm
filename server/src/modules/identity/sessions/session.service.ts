@@ -22,9 +22,11 @@ export async function createSession(
   db: Db,
   input: {
     userId: string
-    membershipId: string
-    orgId: string
-    activeAssignmentId: string
+    /** null only for Platform Admins without an organization. */
+    membershipId: string | null
+    orgId: string | null
+    activeAssignmentId: string | null
+    platformMode?: boolean
   },
   meta: RequestMeta
 ): Promise<NewSession> {
@@ -57,24 +59,46 @@ export async function revokeSessionByToken(
 }
 
 /**
- * Makes another of the member's role assignments active and replaces the
- * session token (the old cookie stops working).
+ * Switches what the session works as, and replaces its token (the old cookie
+ * stops working):
+ * - an assignment id: one of the member's org roles;
+ * - "platform": Platform Admin (Hanux staff only).
  */
-export async function switchActiveAssignment(input: {
+export async function switchSessionRole(input: {
   sessionId: string
-  membershipId: string
-  assignmentId: string
+  userId: string
+  membershipId: string | null
+  target: { assignmentId: string } | { platform: true }
 }): Promise<{ token: string; expiresAt: Date }> {
-  const assignment = await prisma.roleAssignment.findFirst({
-    where: { id: input.assignmentId, membershipId: input.membershipId },
-    select: { id: true },
-  })
-  if (!assignment) throw HttpError.notFound("You don't have that role")
+  let data: Prisma.SessionUpdateInput
+  if ("platform" in input.target) {
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: input.userId },
+      select: { isPlatformAdmin: true },
+    })
+    if (!user.isPlatformAdmin) throw HttpError.forbidden()
+    data = { platformMode: true }
+  } else {
+    const assignment = await prisma.roleAssignment.findFirst({
+      where: {
+        id: input.target.assignmentId,
+        membershipId: input.membershipId ?? "",
+        // Only into an org they can actually use.
+        membership: { status: "ACTIVE", organization: { status: "ACTIVE" } },
+      },
+      select: { id: true },
+    })
+    if (!assignment) throw HttpError.notFound("You don't have that role")
+    data = {
+      platformMode: false,
+      activeAssignment: { connect: { id: assignment.id } },
+    }
+  }
 
   const token = generateToken()
   const session = await prisma.session.update({
     where: { id: input.sessionId },
-    data: { activeAssignmentId: assignment.id, tokenHash: sha256(token) },
+    data: { ...data, tokenHash: sha256(token) },
     select: { expiresAt: true },
   })
   return { token, expiresAt: session.expiresAt }
