@@ -22,6 +22,11 @@ const envSchema = z.object({
   COOKIE_DOMAIN: z.string().optional(),
   /** Number of reverse proxies in front of the app (1 on Railway/Render). */
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
+  /** The client app, for links in emails. */
+  APP_URL: z.url().default("http://localhost:5173"),
+  /** Sends real email through Resend when set; otherwise emails are logged. */
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().default("Hanux CRM <no-reply@example.com>"),
 })
 
 const parsed = envSchema.safeParse(process.env)

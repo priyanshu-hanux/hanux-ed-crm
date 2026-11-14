@@ -70,7 +70,7 @@ User 1──* VerificationToken (email verify code, password reset)
 **Session**: one per signed-in device.
 `id`, `tokenHash` (unique), `userId`, `membershipId`, `orgId`, `activeAssignmentId`, `userAgent`, `ip`, `createdAt`, `lastUsedAt`, `expiresAt` (absolute limit), `revokedAt?`, `revokedReason?` (SIGNED_OUT, REVOKED_BY_USER, REVOKED_BY_ADMIN, PASSWORD_CHANGED, MEMBER_DEACTIVATED, ...).
 
-**Invite**: `id`, `orgId`, `email`, `role`, `branchId` (for the role, and the new member's home branch), `teamId?`, `invitedById`, `tokenHash`, `expiresAt`, `acceptedAt?`, `revokedAt?`.
+**Invite**: `id`, `orgId`, `email`, `role`, `branchId` (the new member's home branch, and the role's branch; Super Admin invites default to the default branch), `teamId?`, `invitedById`, `tokenHash`, `expiresAt` (7 days), `acceptedAt?`, `revokedAt?`. A new invite to the same email revokes the previous open one. Accepting marks the email verified (they opened the emailed link).
 
 **VerificationToken**: `id`, `userId`, `type` (EMAIL_VERIFY, PASSWORD_RESET), `tokenHash`, `attempts`, `expiresAt`, `usedAt?`.
 
@@ -119,7 +119,7 @@ Every response for a signed-in user includes an `X-Authz-Version` header (the me
 
 **Email verification**: 6-digit code (the client already has an OTP input), 10 minutes, 5 attempts. Unverified users can sign in but can't invite others. **Password reset**: emailed link with a single-use token, 30 minutes; resetting revokes all sessions.
 
-**Email**: `lib/mailer.ts` interface. Dev logs emails to the console; production sends with Resend.
+**Email**: `lib/mailer.ts` `sendEmail()`. With `RESEND_API_KEY` set it calls Resend's HTTP API directly (no SDK); without it, development writes the email (including links) to the server log, and tests collect it in `testOutbox`. If sending an invitation fails, the invite is deleted and the API answers `502 EMAIL_FAILED`.
 
 ## Permissions
 
@@ -211,19 +211,19 @@ Later option: Prisma client extension or Postgres row-level security to enforce 
 | `POST /auth/switch-role` | `{ assignmentId }` |
 | `POST /auth/email/send-code`, `POST /auth/email/verify` | Email verification |
 | `POST /auth/password/forgot`, `POST /auth/password/reset` | Password reset |
-| `GET /auth/invites/:token`, `POST /auth/invites/:token/accept` | View invite; accept with `{ name, password }` (or just accept if already a user) |
+| `GET /auth/invites/:token`, `POST /auth/invites/:token/accept` | View invite (`404 INVITE_INVALID` when used, revoked or expired); accept with `{ name, password }`, which creates the account and signs in. An email that already has an account gets `409 ALREADY_MEMBER` until multiple organizations per user are supported. |
 
 **Me** (`/me`): `GET`, `PATCH` (name, avatar), `POST /me/password`, `GET /me/sessions`, `DELETE /me/sessions/:id`, `POST /me/sessions/revoke-others`.
 
 Admins can also sign a member out everywhere: `POST /members/:id/revoke-sessions`.
 
-**Members** (`/members`, scoped): `GET` (paginated; filter by branch, role, team, status, search), `GET /:id`, `PATCH /:id` (home branch, team), `POST /:id/roles` (add assignment), `DELETE /:id/roles/:assignmentId`, `POST /:id/deactivate`, `POST /:id/reactivate`.
+**Members** (`/members`): `GET` (the directory, open to everyone; paginated, up to 500; filter by branch, role, team, status, search; deactivated members only for roles with `members:manage`), `GET /:id`, `PATCH /:id` (home branch, Super Admins only), `POST /:id/roles` (add assignment; you may also give yourself roles you could grant), `DELETE /:id/roles/:assignmentId` (refused for someone's only role: deactivate instead), `POST /:id/deactivate` (also revokes their sessions; never yourself or the owner), `POST /:id/reactivate`, `POST /:id/revoke-sessions`. Removing a Manager role, or deactivating, clears them as manager of their teams.
 
-**Invites** (`/invites`): `GET`, `POST` (single), `POST /bulk` (CSV rows, reports per-row errors), `POST /:id/resend`, `DELETE /:id`.
+**Invites** (`/invites`, `members:invite`): `GET` (open invites in scope: all for Super Admins, the branch for Admins, their own for Managers; `?all=true` includes accepted and revoked), `POST` (single), `POST /bulk` (up to 200 JSON rows, e.g. parsed from a CSV by the client; reports each row), `POST /:id/resend` (new link and expiry; the old link stops working), `DELETE /:id` (revoke). Managers invite Executives only, into a team they manage; with several teams they must pick one.
 
 **Teams** (`/teams`): CRUD; `PUT /:id/members`.
 
-**Branches** (`/branches`): `GET`, `POST` and archive (Super Admin), `PATCH /:id` (Super Admin, or Admin of that branch).
+**Branches** (`/branches`): `GET` (active branches; `?includeArchived=true` for Super Admins), `POST`, `POST /:id/archive` and `POST /:id/restore` (Super Admin), `PATCH /:id` (Super Admin, or Admin of that branch). Archiving refuses the default branch and branches that still have active members, roles or teams, and revokes the branch's open invites.
 
 **Organization** (`/organization`): `GET`, `PATCH`, `POST /transfer-ownership`.
 
@@ -248,9 +248,9 @@ src/
 └── lib/password.ts, crypto.ts (random tokens, sha256), mailer.ts, rate-limit.ts
 ```
 
-New env vars: `APP_URL` (links in emails), `COOKIE_DOMAIN` (production), `RESEND_API_KEY`, `EMAIL_FROM`.
+New env vars: `APP_URL` (links in emails, default `http://localhost:5173`), `COOKIE_DOMAIN` (production), `TRUST_PROXY` (production), `RESEND_API_KEY`, `EMAIL_FROM`.
 
-New packages: `@node-rs/argon2`, `express-rate-limit`, `resend`.
+New packages: `@node-rs/argon2`, `express-rate-limit` (phase 4). Email uses `fetch`, no SDK.
 
 ## Client changes
 
@@ -266,7 +266,7 @@ New packages: `@node-rs/argon2`, `express-rate-limit`, `resend`.
 
 1. ✅ **Foundation** (done): schema and migration (organizations, branches, users, memberships, role assignments, sessions), password and token helpers, `loadAuthContext` and `authenticate`, signup/login/logout/session, `GET /me`. Client: auth API, sign-in/up wired, protected routes, session error handling.
 2. ✅ **Permissions** (done): catalog, `requirePermission`, `scopeWhere`, switch-role, permissions in the session response. Client: role switcher, nav gating.
-3. **Members, invites, teams, branches**: management endpoints, people-management rules, email sending. Client: Team page, accept-invite page.
+3. ✅ **Members, invites, teams, branches** (done): management endpoints, people-management rules (`permissions/policy.ts`), email sending. Client: Team page (`/team`: members, invitations, teams, branches), accept-invite page (`/auth/invite/:token`). Deferred to phase 4: "unverified users can't invite" (needs email verification).
 4. **Account security**: email verification, password reset and change, session list/revoke, rate limits, lockout, audit log.
 5. **Platform admin** (later): organization management for Hanux staff.
 
@@ -274,7 +274,7 @@ Each phase ends with tests (Vitest + Supertest against a Neon branch) and a work
 
 ## Later
 
-- **Multiple organizations per user** with an org switcher (the schema already allows it).
+- **Multiple organizations per user** with an org switcher (the schema already allows it). Then invitations to people who already have an account can be accepted by signing in.
 - **Custom roles**: a `Role` table per org with the four built-in roles seeded; `RoleAssignment.role` becomes a reference. Permission checks don't change because they read permissions, not role names.
 - **Strict branches**: an org setting that keeps teams inside one branch, for customers whose branches are separate business units.
 - **Platform support access**: temporary, audited access to an org for Hanux support.

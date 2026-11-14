@@ -24,6 +24,8 @@ const ReportsPage = lazy(() => import("@/app/dashboard/reports-page"));
 const SettingsPage = lazy(() => import("@/app/dashboard/settings-page"));
 const TargetsPage = lazy(() => import("@/app/dashboard/targets-page"));
 const IntegrationsPage = lazy(() => import("@/app/dashboard/integrations-page"));
+const TeamPage = lazy(() => import("@/app/dashboard/team-page"));
+const AcceptInvitePage = lazy(() => import("@/app/auth/accept-invite-page"));
 
 export const router = createBrowserRouter([
     {
@@ -49,6 +51,10 @@ export const router = createBrowserRouter([
                             {
                                 Component: withPermission("reports:read"),
                                 children: [{ path: "reports", Component: ReportsPage }],
+                            },
+                            {
+                                Component: withPermission("members:read"),
+                                children: [{ path: "team", Component: TeamPage }],
                             },
                             { path: "notifications", Component: NotificationsPage },
                             { path: "settings", Component: SettingsPage },
@@ -93,6 +99,8 @@ export const router = createBrowserRouter([
                     { path: "sign-up", Component: SignUpPage },
                 ],
             },
+            // From the invitation email. Works signed in or out (it explains what to do).
+            { path: "auth/invite/:token", Component: AcceptInvitePage },
         ],
     },
 ]);

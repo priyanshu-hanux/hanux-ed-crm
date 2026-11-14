@@ -17,6 +17,9 @@ export type ErrorCode =
   | "NOT_FOUND"
   | "CONFLICT"
   | "EMAIL_IN_USE"
+  | "ALREADY_MEMBER"
+  | "INVITE_INVALID"
+  | "EMAIL_FAILED"
   | "INTERNAL_ERROR"
 
 /** An error with an HTTP status whose message is safe to show to the client. */

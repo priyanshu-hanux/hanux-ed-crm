@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto"
 import request from "supertest"
 import { createApp } from "@/app.js"
+import { testOutbox } from "@/lib/mailer.js"
 import { prisma } from "@/lib/prisma.js"
 
 export const app = createApp()
@@ -77,6 +78,39 @@ export async function addMember(
     },
     include: { roleAssignments: true },
   })
+}
+
+/** The token from the latest invitation email sent to `email`. */
+export function inviteTokenFor(email: string): string {
+  const mail = [...testOutbox].reverse().find((m) => m.to === email)
+  const token = mail?.text.match(/\/auth\/invite\/([A-Za-z0-9_-]+)/)?.[1]
+  if (!token) throw new Error(`no invitation email for ${email}`)
+  return token
+}
+
+type Agent = ReturnType<typeof request.agent>
+
+/** Invites a new person through the API, accepts as them, returns their agent. */
+export async function inviteAndAccept(
+  inviter: Agent,
+  input: { role: Role; branchId?: string; teamId?: string }
+) {
+  const email = uniqueEmail()
+  const res = await inviter.post("/v1/invites").send({ email, ...input })
+  if (res.status !== 201) {
+    throw new Error(`invite failed: ${res.status} ${JSON.stringify(res.body)}`)
+  }
+  const agent = request.agent(app)
+  const accepted = await agent
+    .post(`/v1/auth/invites/${inviteTokenFor(email)}/accept`)
+    .send({ name: `${input.role} person`, password: PASSWORD })
+  if (accepted.status !== 201) {
+    throw new Error(
+      `accept failed: ${accepted.status} ${JSON.stringify(accepted.body)}`
+    )
+  }
+  const session = (await agent.get("/v1/auth/session")).body.data
+  return { agent, email, session, id: session.membership.id as string }
 }
 
 /** Deletes every user and organization the tests created. */

@@ -2,6 +2,7 @@ import { createContext, useCallback, useEffect, useMemo, useRef, useState, type 
 import { toast } from "sonner";
 import * as authApi from "@/apis/auth-api";
 import { authEvents } from "@/apis/auth-events";
+import { queryClient } from "@/lib/query-client";
 import type { Grant, Permission } from "@/types/permissions";
 import type { RoleAssignment, SessionInfo, SignupInput } from "@/types/session";
 
@@ -51,11 +52,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .then((info) => {
                 setSession(info);
                 setStatus("authenticated");
+                // Permissions may have changed: refetch what's on screen.
+                void queryClient.invalidateQueries();
             })
             .catch(() => {
                 // A 401 also arrives as a "signed-out" event, handled below.
                 setSession(null);
                 setStatus("unauthenticated");
+                queryClient.clear();
             })
             .finally(() => {
                 reloading.current = null;
@@ -78,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         }
                         setSession(null);
                         setStatus("unauthenticated");
+                        queryClient.clear();
                         break;
                     case "permissions-changed":
                         toast.info(event.message);
@@ -118,11 +123,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setSignedOutReason(null);
             setSession(null);
             setStatus("unauthenticated");
+            queryClient.clear();
         }
     }, []);
 
     const switchRole = useCallback(async (assignmentId: string) => {
         setSession(await authApi.switchRole(assignmentId));
+        // A different role sees different data.
+        void queryClient.invalidateQueries();
     }, []);
 
     const value = useMemo<AuthContextValue>(() => {

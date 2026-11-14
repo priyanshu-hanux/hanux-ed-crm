@@ -1,5 +1,12 @@
 import type { Role } from "@/generated/prisma/client.js"
 
+export const ROLE_LABELS: Record<Role, string> = {
+  SUPER_ADMIN: "Super Admin",
+  ADMIN: "Admin",
+  MANAGER: "Manager",
+  EXECUTIVE: "Executive",
+}
+
 /** Broadest first. Used to pick the default assignment on sign-in. */
 export const ROLE_ORDER: readonly Role[] = [
   "SUPER_ADMIN",

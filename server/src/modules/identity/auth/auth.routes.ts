@@ -1,4 +1,10 @@
 import { type Request, Router } from "express"
+import { z } from "zod"
+import {
+  acceptInvite,
+  acceptInviteSchema,
+  viewInvite,
+} from "@/modules/identity/invites/invites.service.js"
 import { authenticate, getAuth } from "@/middleware/authenticate.js"
 import { validate } from "@/middleware/validate.js"
 import {
@@ -32,6 +38,8 @@ const requestMeta = (req: Request): RequestMeta => ({
   ip: req.ip,
 })
 
+const inviteTokenParam = z.object({ token: z.string().min(20).max(100) })
+
 export const authRouter = Router()
 
 authRouter.post(
@@ -64,6 +72,30 @@ authRouter.post("/logout", async (req, res) => {
 authRouter.get("/session", authenticate, async (req, res) => {
   sendSuccess(res, await getSessionInfo(getAuth(req)))
 })
+
+/** Public: what an invitation link is for, so the accept page can show it. */
+authRouter.get(
+  "/invites/:token",
+  validate({ params: inviteTokenParam }),
+  async (req, res) => {
+    sendSuccess(res, await viewInvite(req.params.token as string))
+  }
+)
+
+/** Public: creates the account from an invitation and signs the user in. */
+authRouter.post(
+  "/invites/:token/accept",
+  validate({ params: inviteTokenParam, body: acceptInviteSchema }),
+  async (req, res) => {
+    const session = await acceptInvite(
+      req.params.token as string,
+      req.body as z.infer<typeof acceptInviteSchema>,
+      requestMeta(req)
+    )
+    setSessionCookie(res, session.token, session.expiresAt)
+    sendSuccess(res, null, { status: 201, message: "Welcome aboard" })
+  }
+)
 
 /** Makes another of the member's roles active; returns the new session. */
 authRouter.post(
