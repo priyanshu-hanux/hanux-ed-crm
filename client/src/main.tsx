@@ -7,13 +7,13 @@ import { Toaster } from "@/components/ui/sonner";
 import "@/index.css"
 
 import { ThemeProvider } from "@/components/theme/theme-provider";
-import { ContextApp } from '@/contexts/app-context';
+import { AuthProvider } from "@/contexts/auth-context";
 import { router } from "@/routes/routes";
 import { NotificationProvider } from "@/contexts/notification-provider";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ContextApp>
+    <AuthProvider>
       <ThemeProvider>
         <TooltipProvider>
           <NotificationProvider currentRole="sales" currentUserId="demo-user">
@@ -22,6 +22,6 @@ createRoot(document.getElementById("root")!).render(
         </TooltipProvider>
         <Toaster />
       </ThemeProvider>
-    </ContextApp>
+    </AuthProvider>
   </StrictMode>
 );

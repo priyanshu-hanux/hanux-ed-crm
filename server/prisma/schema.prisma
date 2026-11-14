@@ -1,0 +1,215 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+/// Org roles. Platform Admin is not an org role; see User.isPlatformAdmin.
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  EXECUTIVE
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum BranchStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum MembershipStatus {
+  ACTIVE
+  DEACTIVATED
+}
+
+enum SessionRevokedReason {
+  SIGNED_OUT
+  REVOKED_BY_USER
+  REVOKED_BY_ADMIN
+  PASSWORD_CHANGED
+  MEMBER_DEACTIVATED
+  NO_ROLES_LEFT
+}
+
+// ─── Tenancy ─────────────────────────────────────────────────────────────────
+
+model Organization {
+  id        String             @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String             @unique
+  status    OrganizationStatus @default(ACTIVE)
+  timezone  String             @default("UTC")
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+
+  branches    Branch[]
+  memberships Membership[]
+  teams       Team[]
+  sessions    Session[]
+
+  @@map("organizations")
+}
+
+/// Exactly one default branch per org (partial unique index in the migration).
+model Branch {
+  id        String       @id @default(uuid()) @db.Uuid
+  orgId     String       @map("org_id") @db.Uuid
+  name      String
+  code      String?
+  timezone  String
+  address   String?
+  isDefault Boolean      @default(false) @map("is_default")
+  status    BranchStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  organization    Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  homeMembers     Membership[]
+  homeTeams       Team[]
+  roleAssignments RoleAssignment[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("branches")
+}
+
+// ─── People ──────────────────────────────────────────────────────────────────
+
+/// Global identity, one per email.
+model User {
+  id               String     @id @default(uuid()) @db.Uuid
+  email            String     @unique
+  name             String
+  passwordHash     String     @map("password_hash")
+  avatarUrl        String?    @map("avatar_url")
+  emailVerifiedAt  DateTime?  @map("email_verified_at")
+  isPlatformAdmin  Boolean    @default(false) @map("is_platform_admin")
+  status           UserStatus @default(ACTIVE)
+  failedLoginCount Int        @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?  @map("locked_until")
+  lastLoginAt      DateTime?  @map("last_login_at")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  sessions    Session[]
+
+  @@map("users")
+}
+
+/// A user's place in an org.
+model Membership {
+  id           String           @id @default(uuid()) @db.Uuid
+  userId       String           @map("user_id") @db.Uuid
+  orgId        String           @map("org_id") @db.Uuid
+  homeBranchId String           @map("home_branch_id") @db.Uuid
+  teamId       String?          @map("team_id") @db.Uuid
+  isOwner      Boolean          @default(false) @map("is_owner")
+  status       MembershipStatus @default(ACTIVE)
+  /// Incremented with every change to status, role assignments or team.
+  authzVersion Int              @default(1) @map("authz_version")
+  joinedAt     DateTime         @default(now()) @map("joined_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization       Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  homeBranch         Branch           @relation(fields: [homeBranchId], references: [id], onDelete: NoAction)
+  team               Team?            @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  managedTeams       Team[]           @relation("TeamManager")
+  roleAssignments    RoleAssignment[] @relation("AssignmentMember")
+  createdAssignments RoleAssignment[] @relation("AssignmentCreator")
+  sessions           Session[]
+
+  @@unique([userId, orgId])
+  @@index([orgId, homeBranchId])
+  @@index([teamId])
+  @@map("memberships")
+}
+
+/// What a member may do, and where. branchId is NULL for SUPER_ADMIN only
+/// (check constraint and partial unique indexes in the migration).
+model RoleAssignment {
+  id           String   @id @default(uuid()) @db.Uuid
+  membershipId String   @map("membership_id") @db.Uuid
+  role         Role
+  branchId     String?  @map("branch_id") @db.Uuid
+  createdById  String?  @map("created_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  membership Membership  @relation("AssignmentMember", fields: [membershipId], references: [id], onDelete: Cascade)
+  branch     Branch?     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy  Membership? @relation("AssignmentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  sessions   Session[]
+
+  @@unique([membershipId, role, branchId])
+  @@index([branchId])
+  @@map("role_assignments")
+}
+
+/// Can span branches: members may come from any branch of the org.
+model Team {
+  id           String   @id @default(uuid()) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  homeBranchId String   @map("home_branch_id") @db.Uuid
+  name         String
+  managerId    String?  @map("manager_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  homeBranch   Branch       @relation(fields: [homeBranchId], references: [id], onDelete: NoAction)
+  manager      Membership?  @relation("TeamManager", fields: [managerId], references: [id], onDelete: SetNull)
+  members      Membership[] @relation("TeamMembers")
+
+  @@unique([orgId, name])
+  @@index([managerId])
+  @@map("teams")
+}
+
+// ─── Sessions ────────────────────────────────────────────────────────────────
+
+/// Server-side session, one per signed-in device. Only the token's SHA-256
+/// hash is stored.
+model Session {
+  id                 String                @id @default(uuid()) @db.Uuid
+  tokenHash          String                @unique @map("token_hash")
+  userId             String                @map("user_id") @db.Uuid
+  membershipId       String                @map("membership_id") @db.Uuid
+  orgId              String                @map("org_id") @db.Uuid
+  /// Set to NULL when the assignment is removed; the next request switches
+  /// the session to another assignment or ends it.
+  activeAssignmentId String?               @map("active_assignment_id") @db.Uuid
+  userAgent          String?               @map("user_agent")
+  ip                 String?
+  createdAt          DateTime              @default(now()) @map("created_at")
+  lastUsedAt         DateTime              @default(now()) @map("last_used_at")
+  expiresAt          DateTime              @map("expires_at")
+  revokedAt          DateTime?             @map("revoked_at")
+  revokedReason      SessionRevokedReason? @map("revoked_reason")
+
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  membership       Membership      @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  organization     Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  activeAssignment RoleAssignment? @relation(fields: [activeAssignmentId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([membershipId])
+  @@map("sessions")
+}

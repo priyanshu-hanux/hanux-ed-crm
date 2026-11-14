@@ -1,201 +1,52 @@
-import axios, { AxiosError, type InternalAxiosRequestConfig, type AxiosInstance } from "axios";
-import type { ApiError, RefreshQueueItem, TokenRefreshResponse } from "@/types/app-error";
-import { TokenRefreshError, SessionExpiredError } from "@/types/app-error";
-import { identityUrl } from "@/apis/server-api";
+import axios, { AxiosError, type AxiosInstance } from "axios";
+import { authEvents } from "@/apis/auth-events";
+import { ApiError, type ApiErrorCode } from "@/types/app-error";
 
-interface RetryableConfig extends InternalAxiosRequestConfig {
-    _retry?: boolean;
-}
+const SIGNED_OUT_CODES = new Set<string>(["UNAUTHENTICATED", "SESSION_EXPIRED", "SESSION_REVOKED"]);
 
-class RefreshTokenQueue {
-    private queue: RefreshQueueItem[] = [];
-    private isRefreshing: boolean = false;
-
-    isRefreshingInProgress(): boolean {
-        return this.isRefreshing;
-    }
-
-    setRefreshing(value: boolean): void {
-        this.isRefreshing = value;
-    }
-
-    add(item: RefreshQueueItem): void {
-        this.queue.push(item);
-    }
-
-    processSuccess(token: string): void {
-        this.queue.forEach((item) => {
-            item.resolve(token);
-        });
-        this.clear();
-    }
-
-    processError(error: unknown): void {
-        this.queue.forEach((item) => {
-            item.reject(error);
-        });
-        this.clear();
-    }
-
-    private clear(): void {
-        this.queue = [];
-    }
-
-    getQueueLength(): number {
-        return this.queue.length;
-    }
-}
-
-// Singleton instance for token refresh queue
-const refreshQueue = new RefreshTokenQueue();
-
-// Type guards
-const isTokenRefreshResponse = (data: unknown): data is TokenRefreshResponse => {
-    return (
-        typeof data === 'object' &&
-        data !== null &&
-        'success' in data &&
-        typeof (data as Record<string, unknown>).success === 'boolean'
-    );
-};
-
-const isAxiosError = (error: unknown): error is AxiosError => {
-    return error instanceof AxiosError;
-};
-
-const getErrorMessage = (error: unknown): string => {
-    if (isAxiosError(error)) {
-        const data = error.response?.data;
-        if (typeof data === 'object' && data !== null && 'message' in data) {
-            return (data as Record<string, unknown>).message as string;
+function toApiError(error: unknown): ApiError {
+    if (error instanceof AxiosError) {
+        if (!error.response) {
+            return new ApiError("Can't reach the server. Check your connection and try again.", "NETWORK_ERROR");
         }
-        return error.message;
+        const body = error.response.data as
+            | { code?: ApiErrorCode; message?: string; error?: unknown }
+            | undefined;
+        return new ApiError(
+            body?.message ?? error.message,
+            body?.code ?? "INTERNAL_ERROR",
+            error.response.status,
+            body?.error
+        );
     }
-    if (error instanceof Error) {
-        return error.message;
-    }
-    return 'Unknown error occurred';
-};
+    if (error instanceof Error) return new ApiError(error.message, "INTERNAL_ERROR");
+    return new ApiError("Something went wrong", "INTERNAL_ERROR");
+}
 
+/**
+ * Axios instance for one API. The session lives in an httpOnly cookie, so
+ * requests only need `withCredentials`; there are no tokens to manage here.
+ */
 export const createApi = (baseURL: string): AxiosInstance => {
     const api = axios.create({
         baseURL,
         withCredentials: true,
-        headers: {
-            "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
     });
 
     api.interceptors.response.use(
-        (res) => res,
-        async (error: unknown): Promise<never> => {
-            // Type guard for AxiosError
-            if (!isAxiosError(error)) {
-                const apiError: ApiError = {
-                    message: getErrorMessage(error),
-                    status: undefined,
-                };
-                return Promise.reject(apiError);
+        (response) => {
+            const version = Number(response.headers["x-authz-version"]);
+            if (version) authEvents.emit({ type: "authz-version", version });
+            return response;
+        },
+        (error: unknown) => {
+            const apiError = toApiError(error);
+            if (apiError.status === 401 && SIGNED_OUT_CODES.has(apiError.code)) {
+                authEvents.emit({ type: "signed-out", code: apiError.code, message: apiError.message });
+            } else if (apiError.code === "PERMISSIONS_CHANGED") {
+                authEvents.emit({ type: "permissions-changed", message: apiError.message });
             }
-
-            const originalRequest = error.config as RetryableConfig;
-
-            // Don't attempt refresh for verify-token endpoint (it's expected to return 401 when not logged in)
-            const isVerifyTokenRequest = originalRequest.url?.includes('/verify-token');
-
-            // Check if this is a 401 Unauthorized error
-            if (error.response?.status === 401 && !originalRequest._retry && !isVerifyTokenRequest) {
-                try {
-                    // If already refreshing, queue this request
-                    if (refreshQueue.isRefreshingInProgress()) {
-                        return new Promise<unknown>((resolve, reject) => {
-                            const queueItem: RefreshQueueItem = { resolve, reject };
-                            refreshQueue.add(queueItem);
-                        })
-                            .then((token) => {
-                                if (typeof token === 'string' && originalRequest.headers) {
-                                    return api(originalRequest);
-                                }
-                                throw new SessionExpiredError();
-                            });
-                    }
-
-                    // Mark as refresh in progress
-                    refreshQueue.setRefreshing(true);
-                    originalRequest._retry = true;
-
-                    // Attempt to refresh token
-                    const response = await axios.post<TokenRefreshResponse>(
-                    `${identityUrl}/v1/refresh-token`,
-                        {},
-                        { withCredentials: true }
-                    );
-
-                    const refreshData = response.data;
-
-                    // Validate refresh response using type guard
-                    if (!isTokenRefreshResponse(refreshData)) {
-                        throw new TokenRefreshError(
-                            'Invalid refresh token response format',
-                            response.status,
-                            refreshData
-                        );
-                    }
-
-                    if (!refreshData.success) {
-                        throw new TokenRefreshError(
-                            refreshData.message || 'Failed to refresh token',
-                            response.status
-                        );
-                    }
-
-                    if (!refreshData.accessToken) {
-                        throw new TokenRefreshError(
-                            'No access token in refresh response',
-                            response.status
-                        );
-                    }
-
-                    // Token refresh successful
-                    localStorage.setItem('accessToken', refreshData.accessToken);
-                    refreshQueue.processSuccess(refreshData.accessToken);
-
-                    // Retry original request with new token
-                    return api(originalRequest);
-
-                } catch (refreshError: unknown) {
-                    // Token refresh failed
-                    const errorMessage = getErrorMessage(refreshError);
-                    const refreshTokenError = new TokenRefreshError(
-                        errorMessage,
-                        isAxiosError(refreshError) ? refreshError.response?.status : undefined,
-                        refreshError
-                    );
-
-                    refreshQueue.processError(refreshTokenError);
-                    localStorage.removeItem('accessToken');
-
-                    // Redirect to login page
-                    window.location.href = '/auth/login';
-
-                    return Promise.reject(
-                        new SessionExpiredError(
-                            'Session expired. Please login again.'
-                        )
-                    );
-
-                } finally {
-                    refreshQueue.setRefreshing(false);
-                }
-            }
-
-            // Handle other errors
-            const errorMessage = getErrorMessage(error);
-            const apiError: ApiError = {
-                message: errorMessage,
-                status: error.response?.status,
-            };
-
             return Promise.reject(apiError);
         }
     );

@@ -1,14 +1,42 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import {
     ArrowRight,
+    Building2,
+    CircleAlert,
     Eye,
     EyeOff,
     InfoIcon,
+    LoaderCircle,
     LockKeyhole,
     Mail,
     UserRound,
 } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
+import { useAuth } from "@/hooks/use-auth";
+import { isApiError } from "@/types/app-error";
+import type { AuthRedirectState } from "@/components/site/protected-route";
+
+type FieldName = "orgName" | "name" | "email" | "password";
+type Values = Record<FieldName, string>;
+
+const EMPTY: Values = { orgName: "", name: "", email: "", password: "" };
+
+/** Same rules as the server. */
+function validate(values: Values, isSignup: boolean): Partial<Values> {
+    const errors: Partial<Values> = {};
+    if (!/^\S+@\S+\.\S+$/.test(values.email.trim())) errors.email = "Enter a valid email address";
+    if (!isSignup) {
+        if (!values.password) errors.password = "Enter your password";
+        return errors;
+    }
+    if (values.orgName.trim().length < 2) errors.orgName = "Enter your organization's name";
+    if (!values.name.trim()) errors.name = "Enter your name";
+    const p = values.password;
+    if (p.length < 8 || !/[a-z]/.test(p) || !/[A-Z]/.test(p) || !/[0-9]/.test(p)) {
+        errors.password = "At least 8 characters with uppercase, lowercase, and a number";
+    }
+    return errors;
+}
 
 type Mode = "signin" | "signup";
 
@@ -21,23 +49,27 @@ interface AuthFormProps {
 
 function Field({
     label,
+    htmlFor,
     required,
     icon,
     right,
     optionbtn,
+    error,
     children,
 }: {
     label: string;
+    htmlFor?: string;
     required?: boolean;
     icon?: React.ReactNode;
     right?: React.ReactNode;
     optionbtn?: React.ReactNode;
+    error?: string;
     children: React.ReactNode;
 }) {
     return (
         <div>
             <div className="mb-2 flex items-center justify-between">
-                <label className="text-sm font-semibold text-foreground">
+                <label htmlFor={htmlFor} className="text-sm font-semibold text-foreground">
                     {label}
 
                     {required && (
@@ -61,14 +93,79 @@ function Field({
                     </div>
                 )}
             </div>
+
+            {error && (
+                <p id={htmlFor ? `${htmlFor}-error` : undefined} className="mt-1.5 text-xs text-destructive">
+                    {error}
+                </p>
+            )}
         </div>
     );
 }
 
 export const AuthForm = ({ mode = "signin" }: AuthFormProps) => {
     const [showPassword, setShowPassword] = useState(false);
+    const [values, setValues] = useState<Values>(EMPTY);
+    const [errors, setErrors] = useState<Partial<Values>>({});
+    const [formError, setFormError] = useState<string | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+    const [acceptedTerms, setAcceptedTerms] = useState(false);
+    const [termsError, setTermsError] = useState(false);
+
+    const { signIn, signUp } = useAuth();
+    const location = useLocation();
+    const reason = (location.state as AuthRedirectState | null)?.reason;
 
     const isSignup = mode === "signup";
+
+    const inputProps = (field: FieldName) => ({
+        id: `auth-${field}`,
+        name: field,
+        value: values[field],
+        onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+            const value = event.target.value;
+            setValues((current) => ({ ...current, [field]: value }));
+            if (errors[field]) setErrors((current) => ({ ...current, [field]: undefined }));
+        },
+        "aria-invalid": errors[field] ? true : undefined,
+        "aria-describedby": errors[field] ? `auth-${field}-error` : undefined,
+    });
+
+    const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        setFormError(null);
+
+        const clientErrors = validate(values, isSignup);
+        setErrors(clientErrors);
+        const missingTerms = isSignup && !acceptedTerms;
+        setTermsError(missingTerms);
+        if (Object.keys(clientErrors).length > 0 || missingTerms) return;
+
+        setSubmitting(true);
+        try {
+            if (isSignup) {
+                await signUp({
+                    orgName: values.orgName.trim(),
+                    name: values.name.trim(),
+                    email: values.email.trim(),
+                    password: values.password,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                });
+            } else {
+                await signIn(values.email.trim(), values.password);
+            }
+            // GuestRoute redirects once the session is loaded.
+        } catch (error) {
+            if (isApiError(error) && error.code === "VALIDATION_ERROR") {
+                setErrors(error.fieldErrors as Partial<Values>);
+            } else if (isApiError(error) && error.code === "EMAIL_IN_USE") {
+                setErrors({ email: error.message });
+            } else {
+                setFormError(isApiError(error) ? error.message : "Something went wrong. Please try again.");
+            }
+            setSubmitting(false);
+        }
+    };
 
     return (
         <section className="relative w-full max-w-md">
@@ -136,24 +233,56 @@ export const AuthForm = ({ mode = "signin" }: AuthFormProps) => {
                 </div>
 
                 {/* Form */}
+                {/* Why they were signed out, or why the request failed */}
+                {(formError ?? (!isSignup && reason)) && (
+                    <div
+                        role="alert"
+                        className="mb-5 flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-3 text-sm text-destructive"
+                    >
+                        <CircleAlert size={16} className="mt-0.5 shrink-0" />
+                        <span>{formError ?? reason}</span>
+                    </div>
+                )}
+
                 <form
                     className="space-y-5"
-                    onSubmit={(event) => {
-                        event.preventDefault();
-                    }}
+                    noValidate
+                    onSubmit={handleSubmit}
                 >
+                    {/* Organization */}
+                    {isSignup && (
+                        <Field
+                            label="Organization name"
+                            htmlFor="auth-orgName"
+                            required
+                            icon={<Building2 size={16} />}
+                            error={errors.orgName}
+                        >
+                            <input
+                                type="text"
+                                placeholder="Acme Academy"
+                                autoComplete="organization"
+                                className="auth-input caret-primary"
+                                {...inputProps("orgName")}
+                            />
+                        </Field>
+                    )}
+
                     {/* Full name */}
                     {isSignup && (
                         <Field
                             label="Full name"
+                            htmlFor="auth-name"
                             required
                             icon={<UserRound size={16} />}
+                            error={errors.name}
                         >
                             <input
                                 type="text"
                                 placeholder="John Doe"
                                 autoComplete="name"
                                 className="auth-input caret-primary"
+                                {...inputProps("name")}
                             />
                         </Field>
                     )}
@@ -161,21 +290,26 @@ export const AuthForm = ({ mode = "signin" }: AuthFormProps) => {
                     {/* Email */}
                     <Field
                         label="Email address"
+                        htmlFor="auth-email"
                         required
                         icon={<Mail size={16} />}
+                        error={errors.email}
                     >
                         <input
                             type="email"
                             placeholder="you@example.com"
                             autoComplete="email"
                             className="auth-input"
+                            {...inputProps("email")}
                         />
                     </Field>
 
                     {/* Password */}
                     <Field
                         label="Password"
+                        htmlFor="auth-password"
                         required
+                        error={errors.password}
                         icon={<LockKeyhole size={16} />}
                         optionbtn={
                             isSignup ? (
@@ -281,6 +415,7 @@ export const AuthForm = ({ mode = "signin" }: AuthFormProps) => {
                                     : "current-password"
                             }
                             className="auth-input pr-12"
+                            {...inputProps("password")}
                         />
                     </Field>
 
@@ -296,7 +431,13 @@ export const AuthForm = ({ mode = "signin" }: AuthFormProps) => {
                         >
                             <input
                                 type="checkbox"
-                                required
+                                checked={acceptedTerms}
+                                onChange={(event) => {
+                                    setAcceptedTerms(event.target.checked);
+                                    if (event.target.checked) setTermsError(false);
+                                }}
+                                aria-invalid={termsError || undefined}
+                                aria-describedby={termsError ? "auth-terms-error" : undefined}
                                 className="
                                     mt-0.5 h-4 w-4 shrink-0
                                     rounded border-border
@@ -334,11 +475,19 @@ export const AuthForm = ({ mode = "signin" }: AuthFormProps) => {
                             </span>
                         </label>
                     )}
+                    {isSignup && termsError && (
+                        <p id="auth-terms-error" className="-mt-3 text-xs text-destructive">
+                            Please accept the Terms of Service and Privacy Policy
+                        </p>
+                    )}
 
                     {/* CTA */}
                     <button
                         type="submit"
+                        disabled={submitting}
+                        aria-busy={submitting}
                         className="
+                            disabled:pointer-events-none disabled:opacity-70
                             btn-shine group relative
                             flex h-12 w-full
                             cursor-pointer items-center justify-center gap-2
@@ -352,15 +501,21 @@ export const AuthForm = ({ mode = "signin" }: AuthFormProps) => {
                             hover:shadow-[0_14px_34px_-12px_rgba(169,120,47,0.8)]
                         "
                     >
-                        {isSignup ? "Create account" : "Sign in"}
+                        {submitting
+                            ? isSignup ? "Creating account…" : "Signing in…"
+                            : isSignup ? "Create account" : "Sign in"}
 
-                        <ArrowRight
-                            size={16}
-                            className="
-                                transition-transform
-                                group-hover:translate-x-1
-                            "
-                        />
+                        {submitting ? (
+                            <LoaderCircle size={16} className="animate-spin" />
+                        ) : (
+                            <ArrowRight
+                                size={16}
+                                className="
+                                    transition-transform
+                                    group-hover:translate-x-1
+                                "
+                            />
+                        )}
                     </button>
                 </form>
 

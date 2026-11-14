@@ -1,16 +1,5 @@
 export { cn } from "cn"
 
-export function getDashboardPath(role?: string): string {
-  switch (role) {
-    case "admin":
-      return "/admin-dashboard";
-    case "faculty":
-      return "/faculty-dashboard";
-    default:
-      return "/faculty-dashboard";
-  }
-}
-
 /* ---------- Helpers for user-supplied timezones (e.g. candidate data) ---------- */
 
 const validityCache = new Map<string, boolean>()

@@ -1,39 +1,52 @@
-export interface ApiError {
-    message: string;
-    status?: number;
+/** Error codes sent by the API as `code`. Keep in sync with server/src/utils/http-error.ts. */
+export type ApiErrorCode =
+    | "BAD_REQUEST"
+    | "VALIDATION_ERROR"
+    | "UNAUTHENTICATED"
+    | "SESSION_EXPIRED"
+    | "SESSION_REVOKED"
+    | "INVALID_CREDENTIALS"
+    | "FORBIDDEN"
+    | "PERMISSIONS_CHANGED"
+    | "ACCOUNT_DISABLED"
+    | "NO_ORGANIZATION"
+    | "ORGANIZATION_SUSPENDED"
+    | "NOT_FOUND"
+    | "CONFLICT"
+    | "EMAIL_IN_USE"
+    | "INTERNAL_ERROR"
+    | "NETWORK_ERROR";
+
+/** Field errors returned with VALIDATION_ERROR. */
+export interface ValidationDetails {
+    formErrors: string[];
+    fieldErrors: Record<string, string[] | undefined>;
 }
 
-export interface TokenRefreshResponse {
-    success: boolean;
-    message?: string;
-    accessToken?: string;
-    error?: string;
-}
-
-export interface RefreshQueueItem {
-    resolve: (value: string | PromiseLike<string>) => void;
-    reject: (reason?: unknown) => void;
-}
-
-export class TokenRefreshError extends Error {
+/** Every failed API call rejects with this. */
+export class ApiError extends Error {
     readonly status?: number;
-    readonly originalError?: unknown;
+    readonly code: ApiErrorCode;
+    readonly details?: unknown;
 
-    constructor(
-        message: string,
-        status?: number,
-        originalError?: unknown
-    ) {
+    constructor(message: string, code: ApiErrorCode, status?: number, details?: unknown) {
         super(message);
-        this.name = 'TokenRefreshError';
+        this.name = "ApiError";
+        this.code = code;
         this.status = status;
-        this.originalError = originalError;
+        this.details = details;
+    }
+
+    /** First message per field, for VALIDATION_ERROR responses. */
+    get fieldErrors(): Record<string, string> {
+        if (this.code !== "VALIDATION_ERROR") return {};
+        const details = this.details as ValidationDetails | undefined;
+        const result: Record<string, string> = {};
+        for (const [field, messages] of Object.entries(details?.fieldErrors ?? {})) {
+            if (messages?.[0]) result[field] = messages[0];
+        }
+        return result;
     }
 }
 
-export class SessionExpiredError extends Error {
-    constructor(message: string = 'Session expired. Please login again.') {
-        super(message);
-        this.name = 'SessionExpiredError';
-    }
-}
+export const isApiError = (error: unknown): error is ApiError => error instanceof ApiError;

@@ -1,17 +1,3 @@
-export interface User {
-  id: string;
-  username: string;
-  studentId?: string;
-  email: string;
-  role: "user" | "admin" | "faculty";
-  isVerified: boolean;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-  course: string;
-  semester: number;
-}
-
 export interface Destination {
   id: string;
   name: string;

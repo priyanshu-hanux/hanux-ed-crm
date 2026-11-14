@@ -10,23 +10,42 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 
-import { navigation, roles } from "@/configs/sidebar";
+import { navigation, type Role } from "@/configs/sidebar";
+import { appIcons } from "@/configs/icons";
 import { Separator } from "@/components/ui/separator";
 import { TimezoneSwitcher } from "@/components/sidebar/timezone/timezone-switcher";
-import { RoleSwitcher } from "./role-switcher";
+import { RoleSwitcher } from "@/components/sidebar/role-switcher";
+import { useAuth } from "@/hooks/use-auth";
+import { assignmentLabel, type OrgRole } from "@/types/session";
+
+const ROLE_ICONS: Record<OrgRole, React.ElementType> = {
+  SUPER_ADMIN: appIcons.superAdmin,
+  ADMIN: appIcons.admin,
+  MANAGER: appIcons.manager,
+  EXECUTIVE: appIcons.user,
+};
 
 export function AppSidebar(
   props: React.ComponentProps<typeof Sidebar>
 ) {
+  const { session, activeAssignment, status } = useAuth();
 
-  // e.g. calls getCurrentUser() → /v1/me
-  // const { data: user, isLoading } = useCurrentUser(); 
-  // <RoleSwitcher roles={user?.roles.map(toRole)} loading={isLoading} />
+  // Phase 1 shows the active role; switching between roles comes with permissions.
+  const roles: Role[] =
+    session && activeAssignment
+      ? [
+          {
+            name: assignmentLabel(activeAssignment, session.branches.length),
+            logo: ROLE_ICONS[activeAssignment.role],
+            plan: session.organization.name,
+          },
+        ]
+      : [];
 
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader className="h-14 justify-center">
-        <RoleSwitcher roles={roles} />
+        <RoleSwitcher roles={roles} loading={status === "loading"} />
 
         <Separator orientation="horizontal" className="bg-muted h-1" />
         

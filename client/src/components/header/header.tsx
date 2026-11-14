@@ -9,7 +9,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { appIcons } from "@/configs/icons";
 import { NavUser } from "@/components/sidebar/nav-user";
-import { user } from "@/configs/sidebar";
 import { DateSelector } from "@/components/site/date-selector";
 import { NotificationBell } from "@/components/header/notifications";
 import { FollowUpCalendar } from "@/components/header/activity-calendar/follow-up-calendar";
@@ -82,7 +81,7 @@ export const AppHeader = () => {
                     className="data-[orientation=vertical]:h-5 mx-1"
                 />
 
-                <NavUser user={user} />
+                <NavUser />
             </div>
         </header>
     )

@@ -5,40 +5,11 @@ export type Role = {
     plan: string
 }
 
-export const user = {
-    name: "Rakesh Kumar",
-    email: "kumar@hanux.com",
-    avatar: "https://github.com/shadcn.png",
-}
-
 export const GUEST_ROLE: Role = {
     name: "Guest",
     logo: appIcons.incognito,
     plan: "Visitor"
 }
-
-export const roles = [
-    {
-        name: "Super Admin",
-        logo: appIcons.superAdmin,
-        plan: "Hanux Tech Solutions",
-    },
-    {
-        name: "Admin",
-        logo: appIcons.admin,
-        plan: "Hanux Tech Solutions",
-    },
-    {
-        name: "Manager",
-        logo: appIcons.manager,
-        plan: "Hanux Tech Solutions",
-    },
-    {
-        name: "Executive",
-        logo: appIcons.user,
-        plan: "Hanux Tech Solutions",
-    },
-]
 
 export const navigation = [
     {

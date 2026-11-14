@@ -14,16 +14,23 @@ import {
   AvatarFallback,
   AvatarImage,
 } from "@/components/ui/avatar";
+import { toast } from "sonner";
+import { useAuth } from "@/hooks/use-auth";
 
-export function NavUser({
-  user,
-}: {
-  user: {
-    name: string
-    email: string
-    avatar: string
-  }
-}) {
+export function NavUser() {
+  const { session, signOut } = useAuth();
+  if (!session) return null;
+
+  const user = {
+    name: session.user.name,
+    email: session.user.email,
+    avatar: session.user.avatarUrl ?? "",
+  };
+
+  const handleSignOut = () => {
+    signOut().catch(() => toast.error("Couldn't reach the server, but you've been signed out here."));
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -83,7 +90,7 @@ export function NavUser({
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive">
+        <DropdownMenuItem variant="destructive" onSelect={handleSignOut}>
           <appIcons.logOut />
           Log out
         </DropdownMenuItem>
